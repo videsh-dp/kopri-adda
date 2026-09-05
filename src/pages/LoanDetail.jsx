@@ -13,7 +13,8 @@ export default function LoanDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { state } = useKopri();
-  const [showRepay, setShowRepay] = useState(null); // installment object or preset
+  const [showRepay, setShowRepay] = useState(null); // preset for the event modal
+  const [quickRepay, setQuickRepay] = useState(null); // pre-filled loan/member context
   const [showEdit, setShowEdit] = useState(false);
 
   const loan = state.loans.find((l) => l.id === id);
@@ -58,7 +59,7 @@ export default function LoanDetail() {
             size="sm"
             variant="primary"
             disabled={view.outstandingPrincipal <= 0.5}
-            onClick={() =>
+            onClick={() => {
               setShowRepay({
                 type: EVENT_TYPES.PRINCIPAL_PAYMENT,
                 memberId: loan.memberId,
@@ -66,8 +67,9 @@ export default function LoanDetail() {
                 amount: String(Math.max(nextDueAmount, 1)),
                 date: new Date().toISOString().slice(0, 10),
                 description: "Repayment — principal",
-              })
-            }
+              });
+              setQuickRepay({ memberId: loan.memberId, loanId: loan.id });
+            }}
           >
             <IconPlus /> Record repayment
           </Button>
@@ -171,13 +173,11 @@ export default function LoanDetail() {
                       <StatusBadge status={i.status} />
                     </td>
                     <td className="num">
-                      {i.status !== "paid" && (
-                        <Button
+                      {i.status !== "paid" && (                          <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => {
                             const date = new Date().toISOString().slice(0, 10);
-                            // record principal + interest as one combined flow via two events
                             setShowRepay({
                               type: EVENT_TYPES.PRINCIPAL_PAYMENT,
                               memberId: loan.memberId,
@@ -186,6 +186,7 @@ export default function LoanDetail() {
                               date,
                               description: `Installment ${i.index + 1} — principal`,
                             });
+                            setQuickRepay({ memberId: loan.memberId, loanId: loan.id });
                           }}
                         >
                           Pay
@@ -248,7 +249,12 @@ export default function LoanDetail() {
         </div>
       </div>
 
-      <EventFormModal open={!!showRepay} onClose={() => setShowRepay(null)} preset={showRepay || {}} />
+      <EventFormModal
+        open={!!showRepay}
+        onClose={() => { setShowRepay(null); setQuickRepay(null); }}
+        preset={showRepay || {}}
+        editEvent={quickRepay}
+      />
       <LoanFormModal open={showEdit} onClose={() => setShowEdit(false)} editLoan={loan} />
     </div>
   );

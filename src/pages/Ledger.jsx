@@ -5,7 +5,7 @@ import { sortLedger, deriveAccounts } from "../lib/calculations.js";
 import { formatINR, formatDate } from "../lib/format.js";
 import { Card, Badge, Button, EmptyState } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
-import { IconPlus, IconSearch } from "../components/Icons.jsx";
+import { IconPlus, IconSearch, IconEdit } from "../components/Icons.jsx";
 import { EVENT_TYPES } from "../lib/constants.js";
 
 const FILTERS = [
@@ -40,6 +40,7 @@ export default function Ledger() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [editEvent, setEditEvent] = useState(null);
 
   const memberById = useMemo(() => Object.fromEntries(state.members.map((m) => [m.id, m])), [state.members]);
   const loanById = useMemo(() => Object.fromEntries(state.loans.map((l) => [l.id, l])), [state.loans]);
@@ -152,6 +153,7 @@ export default function Ledger() {
                   <th>Description</th>
                   <th className="num">Amount</th>
                   <th className="num">Running pool</th>
+                  <th className="num" style={{ width: 64 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -188,6 +190,16 @@ export default function Ledger() {
                       <td className="num mono" style={{ fontWeight: 650 }}>
                         {formatINR(e.running)}
                       </td>
+                      <td className="num" style={{ width: 64 }}>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => setEditEvent(e)}
+                          title="Edit transaction"
+                          style={{ padding: "4px 8px", borderRadius: 8 }}
+                        >
+                          <IconEdit width={13} height={13} />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -202,6 +214,7 @@ export default function Ledger() {
       </div>
 
       <EventFormModal open={showAdd} onClose={() => setShowAdd(false)} />
+      <EventFormModal open={!!editEvent} onClose={() => setEditEvent(null)} editEvent={editEvent} />
     </div>
   );
 }

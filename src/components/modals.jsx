@@ -251,21 +251,26 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
 }
 
 // ------------------------------------------------------------ EventForm
-export function EventFormModal({ open, onClose, preset = {} }) {
-  const { state, addEvent } = useKopri();
-  const [form, setForm] = useState({
-    type: EVENT_TYPES.CONTRIBUTION,
-    date: todayISO(),
-    amount: "1000",
-    memberId: "",
-    loanId: "",
-    account: ACCOUNTS.CASH,
-    description: "",
-    sign: "positive",
-    from: ACCOUNTS.CASH,
-    to: ACCOUNTS.BANK,
-    ...preset,
-  });
+export function EventFormModal({ open, onClose, preset = {}, editEvent = null }) {
+  const { state, addEvent, updateEvent } = useKopri();
+  const [form, setForm] = useState(
+    () => {
+      const base = {
+        type: EVENT_TYPES.CONTRIBUTION,
+        date: todayISO(),
+        amount: "1000",
+        memberId: "",
+        loanId: "",
+        account: ACCOUNTS.CASH,
+        description: "",
+        sign: "positive",
+        from: ACCOUNTS.CASH,
+        to: ACCOUNTS.BANK,
+        ...preset,
+      };
+      return editEvent ? { ...base, ...editEvent } : base;
+    }
+  );
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const needsMember = [EVENT_TYPES.CONTRIBUTION, EVENT_TYPES.WITHDRAWAL].includes(form.type);
@@ -284,9 +289,17 @@ export function EventFormModal({ open, onClose, preset = {} }) {
       loanId: needsLoan ? form.loanId : "",
       description: form.description || (isTransfer ? "Transfer" : ""),
     };
-    if (isTransfer) addEvent({ ...base, type: EVENT_TYPES.TRANSFER, from: form.from, to: form.to });
-    else if (isAdjustment) addEvent({ ...base, type: EVENT_TYPES.ADJUSTMENT, sign: form.sign });
-    else addEvent({ ...base, type: form.type });
+    const payload = isTransfer
+      ? { ...base, type: EVENT_TYPES.TRANSFER, from: form.from, to: form.to }
+      : isAdjustment
+        ? { ...base, type: EVENT_TYPES.ADJUSTMENT, sign: form.sign }
+        : { ...base, type: form.type };
+
+    if (editEvent) {
+      updateEvent(editEvent.id, payload);
+    } else {
+      addEvent(payload);
+    }
     onClose();
   };
 

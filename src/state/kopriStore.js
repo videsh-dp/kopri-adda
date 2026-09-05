@@ -157,6 +157,14 @@ function bookReducer(book, action) {
     case "DELETE_EVENT":
       return { ...book, events: book.events.filter((e) => e.id !== action.id) };
 
+    case "UPDATE_EVENT":
+      return {
+        ...book,
+        events: book.events.map((e) =>
+          e.id === action.id ? { ...e, ...action.patch } : e
+        ),
+      };
+
     case "UPDATE_RULES":
       return { ...book, rules: { ...book.rules, ...action.rules } };
 

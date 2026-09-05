@@ -13,6 +13,7 @@ export default function MemberDetail() {
   const navigate = useNavigate();
   const { state } = useKopri();
   const [showEvent, setShowEvent] = useState(null); // preset for the event modal
+  const [quickRecord, setQuickRecord] = useState(null); // preset with loanId + memberId pre-filled
 
   const member = state.members.find((m) => m.id === id);
   const view = useMemo(() => (member ? deriveMember(member, state.events, state.loans) : null), [member, state.events, state.loans]);
@@ -57,11 +58,14 @@ export default function MemberDetail() {
           <IconArrow style={{ transform: "rotate(180deg)" }} /> Members
         </Link>
         <div className="row">
-          <Button size="sm" onClick={() => setShowEvent({ type: EVENT_TYPES.CONTRIBUTION, memberId: id })}>
+          <Button size="sm" onClick={() => { setShowEvent({ type: EVENT_TYPES.CONTRIBUTION, memberId: id }); setQuickRecord(null); }}>
             <IconPlus /> Contribution
           </Button>
-          <Button size="sm" variant="danger" onClick={() => setShowEvent({ type: EVENT_TYPES.WITHDRAWAL, memberId: id })}>
+          <Button size="sm" variant="danger" onClick={() => { setShowEvent({ type: EVENT_TYPES.WITHDRAWAL, memberId: id }); setQuickRecord(null); }}>
             Withdrawal
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => { setQuickRecord({ memberId: id }); setShowEvent({}); }}>
+            <IconPlus /> Record transaction
           </Button>
         </div>
       </div>
@@ -218,7 +222,12 @@ export default function MemberDetail() {
         )}
       </Card>
 
-      <EventFormModal open={!!showEvent} onClose={() => setShowEvent(null)} preset={showEvent || {}} />
+      <EventFormModal
+        open={!!showEvent}
+        onClose={() => { setShowEvent(null); setQuickRecord(null); }}
+        preset={showEvent || {}}
+        editEvent={quickRecord}
+      />
     </div>
   );
 }

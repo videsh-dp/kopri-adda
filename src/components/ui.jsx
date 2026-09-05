@@ -188,3 +188,73 @@ export function SectionTitle({ children, sub, right }) {
     </div>
   );
 }
+
+// --------------------------------------------------------------- Toast
+let toastListeners = [];
+export function toast(msg) {
+  toastListeners.forEach((cb) => cb(msg));
+  setTimeout(() => toastListeners.forEach((cb) => cb("»")), 3600);
+  setTimeout(() => toastListeners.forEach((cb) => cb(null)), 3700);
+}
+
+export function useToast() {
+  const [msg, setMsg] = useState(null);
+  useEffect(() => {
+    const idx = toastListeners.length;
+    toastListeners.push(setMsg);
+    return () => {
+      toastListeners.splice(idx, 1);
+    };
+  }, []);
+  return msg;
+}
+
+export function ToastHost() {
+  const msg = useToast();
+  if (!msg) return null;
+  return (
+    <div
+      className="toast"
+      style={{
+        position: "fixed",
+        bottom: 84,
+        left: "50%",
+        transform: "translateX(-50%)",
+        background: "var(--bg-elev)",
+        border: "1px solid var(--border-strong)",
+        borderRadius: 12,
+        padding: "10px 18px",
+        boxShadow: "var(--shadow-lg)",
+        zIndex: 200,
+        fontWeight: 600,
+        fontSize: 13.5,
+        color: "var(--text)",
+        maxWidth: "90vw",
+        textAlign: "center",
+      }}
+    >
+      {msg}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------- ConfirmModal
+export function ConfirmModal({ open, onClose, onConfirm, title, children, confirmLabel = "Confirm", danger = false }) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={title}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onConfirm} variant={danger ? "danger" : "primary"}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      {children}
+    </Modal>
+  );
+}

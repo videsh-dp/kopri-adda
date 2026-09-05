@@ -100,6 +100,7 @@ export function KopriProvider({ children }) {
       updateLoan: (id, patch) => dispatch({ type: "UPDATE_LOAN", id, patch }),
       addEvent: (event) => dispatch({ type: "ADD_EVENT", event }),
       deleteEvent: (id) => dispatch({ type: "DELETE_EVENT", id }),
+      updateEvent: (id, patch) => dispatch({ type: "UPDATE_EVENT", id, patch }),
       updateRules: (rules) => dispatch({ type: "UPDATE_RULES", rules }),
       saveYearEnd: (yearEnd) => dispatch({ type: "SAVE_YEAR_END", yearEnd }),
       settleYearEnd: (year, date) => dispatch({ type: "SETTLE_YEAR_END", year, date }),
