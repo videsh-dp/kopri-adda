@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
+import { toast } from "../components/ui.jsx";
 import { sortLedger, deriveAccounts } from "../lib/calculations.js";
 import { formatINR, formatDate } from "../lib/format.js";
 import { Card, Badge, Button, EmptyState } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
-import { IconPlus, IconSearch, IconEdit } from "../components/Icons.jsx";
+import { IconPlus, IconSearch, IconEdit, IconTrash } from "../components/Icons.jsx";
+import { ConfirmModal } from "../components/ui.jsx";
 import { EVENT_TYPES } from "../lib/constants.js";
 
 const FILTERS = [
@@ -39,8 +41,10 @@ export default function Ledger() {
   const [filter, setFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const { deleteEvent } = useKopri();
   const [showAdd, setShowAdd] = useState(false);
   const [editEvent, setEditEvent] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // event to delete
 
   const memberById = useMemo(() => Object.fromEntries(state.members.map((m) => [m.id, m])), [state.members]);
   const loanById = useMemo(() => Object.fromEntries(state.loans.map((l) => [l.id, l])), [state.loans]);
@@ -142,7 +146,7 @@ export default function Ledger() {
         {withRunning.length === 0 ? (
           <EmptyState icon="🧾" title="No transactions match" sub="Adjust the filters or record a new transaction." />
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap sticky-header">
             <table className="data">
               <thead>
                 <tr>
@@ -153,7 +157,7 @@ export default function Ledger() {
                   <th>Description</th>
                   <th className="num">Amount</th>
                   <th className="num">Running pool</th>
-                  <th className="num" style={{ width: 64 }}></th>
+                  <th className="num" style={{ width: 64, textAlign: "center" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -199,6 +203,14 @@ export default function Ledger() {
                         >
                           <IconEdit width={13} height={13} />
                         </button>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => setDeleteConfirm(e)}
+                          title="Delete transaction"
+                          style={{ padding: "4px 8px", borderRadius: 8, color: "var(--red)" }}
+                        >
+                          <IconTrash width={13} height={13} />
+                        </button>
                       </td>
                     </tr>
                   );
@@ -215,6 +227,29 @@ export default function Ledger() {
 
       <EventFormModal open={showAdd} onClose={() => setShowAdd(false)} />
       <EventFormModal open={!!editEvent} onClose={() => setEditEvent(null)} editEvent={editEvent} />
+      <ConfirmModal
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={() => {
+          if (deleteConfirm) {
+            deleteEvent(deleteConfirm.id);
+            toast(`Transaction deleted.`);
+          }
+          setDeleteConfirm(null);
+        }}
+        title={`Delete transaction?`}
+        confirmLabel="Delete"
+        danger
+      >
+        <p className="muted">
+          This removes <b>{deleteConfirm?.type && EVENT_LABELS[deleteConfirm.type] || ""}</b> event「{deleteConfirm?.id?.toUpperCase()}」
+          — {formatINR(deleteConfirm?.amount || 0)} on {formatDate(deleteConfirm?.date)}.
+          {deleteConfirm?.memberId ? ` Member: ${memberById[deleteConfirm.memberId]?.name || ""}.` : ""}
+          {deleteConfirm?.loanId ? ` Loan: ${loanById[deleteConfirm.loanId]?.id.toUpperCase() || ""}.` : ""}
+          <br /><br />
+          This cannot be undone. Balances will re-derive automatically.
+        </p>
+      </ConfirmModal>
     </div>
   );
 }

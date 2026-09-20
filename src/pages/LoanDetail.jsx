@@ -173,24 +173,24 @@ export default function LoanDetail() {
                       <StatusBadge status={i.status} />
                     </td>
                     <td className="num">
-                      {i.status !== "paid" && (                          <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            const date = new Date().toISOString().slice(0, 10);
-                            setShowRepay({
-                              type: EVENT_TYPES.PRINCIPAL_PAYMENT,
-                              memberId: loan.memberId,
-                              loanId: loan.id,
-                              amount: String(Math.max(i.principalLeft, 0.01)),
-                              date,
-                              description: `Installment ${i.index + 1} — principal`,
-                            });
-                            setQuickRepay({ memberId: loan.memberId, loanId: loan.id });
-                          }}
-                        >
-                          Pay
-                        </Button>
+                      {i.status !== "paid" && (          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              const date = new Date().toISOString().slice(0, 10);
+              setShowRepay({
+                memberId: loan.memberId,
+                loanId: loan.id,
+                amount: String(Math.max(i.principalLeft, 0.01)),
+                date,
+                description: `Installment ${i.index + 1}`,
+                quickPay: true,
+              });
+              setQuickRepay({ memberId: loan.memberId, loanId: loan.id });
+            }}
+          >
+            Pay
+          </Button>
                       )}
                     </td>
                   </tr>

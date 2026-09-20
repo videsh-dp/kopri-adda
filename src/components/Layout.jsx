@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useKopri } from "../state/KopriContext.jsx";
 import { formatDate, todayISO } from "../lib/format.js";
 import KopriSwitcher from "./KopriSwitcher.jsx";
@@ -15,6 +15,7 @@ import {
   IconSun,
   IconMoon,
   IconMenu,
+  IconRefresh,
 } from "./Icons.jsx";
 
 const NAV = [
@@ -70,6 +71,22 @@ export default function Layout() {
   const toggleMobileMenu = () => setShowMobileMenu((v) => !v);
   const closeMobileMenu = () => setShowMobileMenu(false);
 
+  // Scroll-to-top button: show when scrolled down
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const scrollTopRef = useRef(null);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 400);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -113,8 +130,33 @@ export default function Layout() {
         <main className="content">
           <Outlet />
         </main>
+
+        <button
+          className={`scroll-top ${showScrollTop ? "visible" : ""}`}
+          onClick={scrollToTop}
+          aria-label="Scroll to top"
+        >
+          <IconRefresh />
+        </button>
       </div>
 
+      {showMobileMenu && (
+        <div className="mobile-menu-overlay" onClick={closeMobileMenu} />
+      )}
+      <nav className={"mobile-nav" + (showMobileMenu ? " open" : "")}>
+        {MOBILE.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) => (isActive ? "active" : "")}
+            onClick={closeMobileMenu}
+          >
+            <item.icon width={20} height={20} />
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }

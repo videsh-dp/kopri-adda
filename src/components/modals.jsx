@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useKopri } from "../state/KopriContext.jsx";
 import { Modal, Button, Field, TextInput, NumberInput } from "./ui.jsx";
 import {
@@ -273,6 +273,42 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null })
   );
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const isQuickPay = preset.quickPay && !form.type;
+
+  // When quickPay is active, derive the next due installment amounts from the loan.
+  const quickPayInstallment = useMemo(() => {
+    if (!isQuickPay || !form.loanId) return null;
+    const loan = state.loans.find((l) => l.id === form.loanId);
+    if (!loan) return null;
+    const schedule = xj(loan);
+    const eventsForLoan = state.events.filter((e) => e.loanId === loan.id);
+    const paidByInstallment = Array(schedule.length).fill(0);
+    for (const ev of eventsForLoan) {
+      const idx = ev.installmentIndex;
+      if (idx == null) continue;
+      if (ev.type === EVENT_TYPES.PRINCIPAL_PAYMENT) paidByInstallment[idx] += Number(ev.amount) || 0;
+      if (ev.type === EVENT_TYPES.INTEREST_PAYMENT) paidByInstallment[idx] += Number(ev.amount) || 0;
+    }
+    const nextIdx = schedule.findIndex(
+      (s, i) => paidByInstallment[i] < s.principalDue + s.interestDue - 0.5
+    );
+    if (nextIdx === -1) return null;
+    return {
+      principalLeft: Math.max(schedule[nextIdx].principalDue - paidByInstallment[nextIdx], 0),
+      interestLeft: Math.max(schedule[nextIdx].interestDue - paidByInstallment[nextIdx], 0),
+    };
+  }, [isQuickPay, form.loanId, state.loans, state.events]);
+
+  // Auto-set amount to principal+interest total when quickPay opens and no type chosen yet.
+  useEffect(() => {
+    if (isQuickPay && quickPayInstallment) {
+      const total = Math.max(quickPayInstallment.principalLeft + quickPayInstallment.interestLeft, 1);
+      if (Number(form.amount) !== total) {
+        setForm((f) => ({ ...f, amount: String(total) }));
+      }
+    }
+  }, [isQuickPay, quickPayInstallment]);
+
   const needsMember = [EVENT_TYPES.CONTRIBUTION, EVENT_TYPES.WITHDRAWAL].includes(form.type);
   const needsLoan = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE].includes(form.type);
   const isTransfer = form.type === EVENT_TYPES.TRANSFER;
@@ -333,13 +369,57 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null })
     >
       <div className="form-grid">
         <Field label="Event type" className="grow" style={{ gridColumn: "1 / -1" }}>
-          <select value={form.type} onChange={set("type")}>
-            {typeOptions.map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </select>
+          {isQuickPay ? (
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              {[
+                [EVENT_TYPES.PRINCIPAL_PAYMENT, "Principal payment"],
+                [EVENT_TYPES.INTEREST_PAYMENT, "Interest payment"],
+                [EVENT_TYPES.PRINCIPAL_PAYMENT, "Principal + interest"],
+              ].map(([evType, label]) => (
+                <Button
+                  key={evType + label}
+                  size="sm"
+                  variant={form.type === evType && label !== "Principal + interest" ? "primary" : "ghost"}
+                  onClick={() => {
+                    const baseType = evType === EVENT_TYPES.PRINCIPAL_PAYMENT && label === "Principal + interest"
+                      ? EVENT_TYPES.PRINCIPAL_PAYMENT
+                      : evType;
+                    const isPrincipalAndInterest = label === "Principal + interest";
+                    const pLeft = quickPayInstallment?.principalLeft ?? 0;
+                    const iLeft = quickPayInstallment?.interestLeft ?? 0;
+                    let amount;
+                    if (isPrincipalAndInterest) {
+                      amount = Math.max(pLeft + iLeft, 1);
+                    } else if (label === "Principal payment") {
+                      amount = Math.max(pLeft, 1);
+                    } else {
+                      amount = Math.max(iLeft, 1);
+                    }
+                    setForm((f) => ({
+                      ...f,
+                      type: baseType,
+                      amount: String(amount),
+                      description: isPrincipalAndInterest
+                        ? `Installment — principal + interest`
+                        : label === "Principal payment"
+                          ? `Installment — principal`
+                          : `Installment — interest`,
+                    }));
+                  }}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <select value={form.type} onChange={set("type")}>
+              {typeOptions.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          )}
         </Field>
         <Field label="Date">
           <input type="date" value={form.date} onChange={set("date")} />

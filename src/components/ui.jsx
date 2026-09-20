@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconClose } from "./Icons.jsx";
 import { avatarColor, initials } from "../lib/format.js";

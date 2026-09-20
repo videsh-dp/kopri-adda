@@ -876,7 +876,122 @@ table.data tbody tr:last-child td {
   margin-right: 5px;
 }
 
-/* ------------------------------------------------------------ Responsive */  @media (max-width: 860px) {
+/* --------------------------------------------------------------- Toast */
+
+.toast {
+  animation: toastIn 0.2s ease-out;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ---------------------------------------------------------- ConfirmModal */
+
+/* No extra styles needed — uses Modal */
+
+/* --------------------------------------------------------------- Scroll to top */
+
+.scroll-top {
+  position: fixed;
+  bottom: 80px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  color: var(--text-soft);
+  cursor: pointer;
+  z-index: 30;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(10px);
+  transition: all 0.2s;
+  box-shadow: var(--shadow);
+}
+
+.scroll-top.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.scroll-top:hover {
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+
+/* ------------------------------------------------------------ Responsive */
+
+/* Tablet: slimmed-down but still desktop-like */
+@media (min-width: 861px) and (max-width: 1180px) {
+  .content {
+    padding: 18px 20px 104px;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+    gap: 12px;
+  }
+
+  table.data {
+    font-size: 12.5px;
+    min-width: 420px;
+  }
+
+  table.data th {
+    padding: 8px 10px;
+  }
+
+  table.data td {
+    padding: 8px 10px;
+  }
+
+  .toolbar {
+    gap: 8px;
+  }
+
+  .page-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .table-wrap.sticky-header {
+    max-height: calc(100vh - 240px);
+    overflow-y: auto;
+  }
+
+  .table-wrap.sticky-header table.data thead {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--bg-soft);
+  }
+
+  .table-wrap.sticky-header table.data thead th {
+    border-bottom: 2px solid var(--border);
+  }
+
+  .scroll-top {
+    bottom: 80px;
+    right: 12px;
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* Phone: bottom nav + compact everything */
+@media (max-width: 860px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
@@ -935,118 +1050,6 @@ table.data tbody tr:last-child td {
   }
 
   .mobile-nav {
-    animation: slideUp 0.2s ease-out;
-  }
-
-  .mobile-nav.open {
-    transform: translateY(0);
-  }
-
-  .toast {
-    animation: toastIn 0.2s ease-out;
-  }
-
-  @keyframes toastIn {
-    from {
-      opacity: 0;
-      transform: translateX(-50%) translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-  }
-
-  /* Tablet breakpoint */
-  @media (min-width: 861px) and (max-width: 1100px) {
-    .content {
-      padding: 18px 20px 104px;
-    }
-
-    .stat-grid {
-      grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
-    }
-
-    table.data {
-      font-size: 12.5px;
-      min-width: 420px;
-    }
-
-    table.data th {
-      padding: 8px 10px;
-    }
-
-    table.data td {
-      padding: 8px 10px;
-    }
-
-    .toolbar {
-      gap: 8px;
-    }
-
-    .page-head {
-      flex-direction: column;
-      align-items: stretch;
-    }
-  }
-
-  /* Sticky table headers on long pages */
-  .table-wrap {
-    overflow-x: auto;
-    border-radius: 0 0 var(--radius) var(--radius);
-    position: relative;
-  }
-
-  .table-wrap.sticky-header {
-    max-height: calc(100vh - 280px);
-    overflow-y: auto;
-  }
-
-  .table-wrap.sticky-header table.data thead {
-    position: sticky;
-    top: 0;
-    z-index: 5;
-    background: var(--bg-soft);
-  }
-
-  .table-wrap.sticky-header table.data thead th {
-    border-bottom: 2px solid var(--border);
-  }
-
-  /* Scroll to top affordance */
-  .scroll-top {
-    position: fixed;
-    bottom: 80px;
-    right: 16px;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: var(--bg-elev);
-    border: 1px solid var(--border);
-    display: grid;
-    place-items: center;
-    color: var(--text-soft);
-    cursor: pointer;
-    z-index: 30;
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(10px);
-    transition: all 0.2s;
-    box-shadow: var(--shadow);
-  }
-
-  .scroll-top.visible {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  .scroll-top:hover {
-    border-color: var(--primary);
-    color: var(--primary-text);
-  }
-
-  .mobile-nav {
     display: flex;
     position: fixed;
     bottom: 0;
@@ -1058,6 +1061,7 @@ table.data tbody tr:last-child td {
     padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
     justify-content: space-around;
     box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+    animation: slideUp 0.2s ease-out;
   }
 
   .mobile-nav a {
@@ -1085,13 +1089,6 @@ table.data tbody tr:last-child td {
 
   .mobile-nav a.active svg {
     opacity: 1;
-  }
-
-  .scroll-top {
-    bottom: 80px;
-    right: 10px;
-    width: 44px;
-    height: 44px;
   }
 
   .stat-grid {
@@ -1167,5 +1164,17 @@ table.data tbody tr:last-child td {
     padding: 6px 11px;
     font-size: 12.5px;
     gap: 6px;
+  }
+
+  .scroll-top {
+    bottom: 80px;
+    right: 10px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .table-wrap.sticky-header {
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
   }
 }

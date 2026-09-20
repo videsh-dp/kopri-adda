@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { computeYearEnd } from "../lib/calculations.js";
 import { formatINR, formatDate, todayISO } from "../lib/format.js";
-import { Card, StatCard, Button, Badge, Avatar, EmptyState, Modal } from "../components/ui.jsx";
+import { Card, StatCard, Button, Badge, Avatar, EmptyState, Modal, toast } from "../components/ui.jsx";
 import { PROFIT_DISTRIBUTION } from "../lib/constants.js";
 
 export default function YearEnd() {
@@ -11,8 +11,6 @@ export default function YearEnd() {
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [confirmSettle, setConfirmSettle] = useState(false);
   const [confirmAllocate, setConfirmAllocate] = useState(false);
-  const [toast, setToast] = useState("");
-
   // Financial year end = 31 March of the following calendar year
   const fyEnd = `${Number(year) + 1}-03-31`;
 
@@ -243,7 +241,7 @@ export default function YearEnd() {
               onClick={() => {
                 saveYearEnd({ ...result, year: String(year) });
                 setConfirmAllocate(false);
-                showToast("Allocation saved — profit events added to the ledger.");
+                toast("Allocation saved — profit events added to the ledger.");
               }}
             >
               Save allocation
@@ -270,7 +268,7 @@ export default function YearEnd() {
               onClick={() => {
                 settleYearEnd(String(year), todayISO());
                 setConfirmSettle(false);
-                showToast("FY settled — payouts recorded in the ledger.");
+                toast("FY settled — payouts recorded in the ledger.");
               }}
             >
               Confirm settlement
@@ -283,27 +281,6 @@ export default function YearEnd() {
           pool's cash. Total payout: <b>{formatINR(result.allocations.reduce((s, a) => s + a.settlement, 0))}</b>.
         </p>
       </Modal>
-
-      {toast && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 90,
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: "var(--bg-elev)",
-            border: "1px solid var(--border-strong)",
-            borderRadius: 12,
-            padding: "10px 18px",
-            boxShadow: "var(--shadow-lg)",
-            zIndex: 200,
-            fontWeight: 600,
-            fontSize: 13.5,
-          }}
-        >
-          {toast}
-        </div>
-      )}
     </div>
   );
 }
