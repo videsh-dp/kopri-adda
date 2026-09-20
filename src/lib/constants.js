@@ -81,6 +81,14 @@ export const LATE_RULES = {
   PERCENTAGE_PENALTY: "percentage_penalty",
 };
 
+export const LATE_RULE_LABELS = {
+  [LATE_RULES.GRACE_ONLY]: "Grace period only",
+  [LATE_RULES.NORMAL_INTEREST]: "Normal interest continues after grace",
+  [LATE_RULES.ADDITIONAL_INTEREST]: "Additional interest after grace",
+  [LATE_RULES.FIXED_PENALTY]: "Fixed penalty per overdue installment",
+  [LATE_RULES.PERCENTAGE_PENALTY]: "Percentage penalty on overdue amount",
+};
+
 export const UNPAID_INTEREST_RULES = {
   CARRY_FORWARD: "carry_forward",
   SEPARATE_OUTSTANDING: "separate_outstanding",

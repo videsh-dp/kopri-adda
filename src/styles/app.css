@@ -876,6 +876,79 @@ table.data tbody tr:last-child td {
   margin-right: 5px;
 }
 
+/* ----------------------------------------------- Payment interest working */
+
+.calc-box {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+}
+
+.calc-head {
+  font-weight: 750;
+  font-size: 13px;
+}
+
+.calc-sub {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+
+.calc-section-label {
+  font-size: 10.5px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 12px 0 6px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.calc-section-label:first-of-type {
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.calc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+
+.calc-label {
+  color: var(--text-soft);
+}
+
+.calc-formula {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  margin-top: 1px;
+  word-break: break-word;
+}
+
+.calc-amt {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.calc-late-flag {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--amber);
+  margin-bottom: 6px;
+}
+
 /* --------------------------------------------------------------- Toast */
 
 .toast {

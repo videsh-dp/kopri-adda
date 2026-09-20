@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useKopri } from "../state/KopriContext.jsx";
 import { Modal, Button, Field, TextInput, NumberInput } from "./ui.jsx";
 import {
@@ -10,7 +10,199 @@ import {
   ACCOUNTS,
   EVENT_TYPES,
 } from "../lib/constants.js";
-import { todayISO } from "../lib/format.js";
+import { buildSchedule, computeLateCharges } from "../lib/calculations.js";
+import { todayISO, formatINR, formatDate, formatNumber, round2 } from "../lib/format.js";
+
+const rupee = (n) => formatINR(n, { precise: true });
+
+function methodLabel(method) {
+  if (method === INTEREST_METHODS.FLAT) return "Flat (on original loan principal)";
+  if (method === INTEREST_METHODS.DAILY_OUTSTANDING) return "Daily outstanding (month × days/30)";
+  return "Reducing balance (on outstanding at period start)";
+}
+
+function CalcRow({ label, value, formula, tone, strong }) {
+  return (
+    <div className={`calc-row${strong ? " calc-row-total" : ""}`}>
+      <div>
+        <div className={strong ? "" : "calc-label"}>{label}</div>
+        {formula ? <div className="calc-formula">{formula}</div> : null}
+      </div>
+      <div className="calc-amt" style={tone ? { color: tone } : undefined}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function InterestWorking({ loan, installment, instLeft, late, split, payMode, withLate, setWithLate }) {
+  const billedThisMonth = installment.interestDue;
+  const carried = Number(installment.carriedIn) || 0;
+  const periodInterest = Number(installment.periodInterest) || 0;
+  const extraInterest = late?.lateInterest || 0;
+  const penalty = late?.penalty || 0;
+  const lateTotal = late?.total || 0;
+  const totalInterest = round2(instLeft.interest + extraInterest);
+  const installmentTotal = round2(instLeft.principal + instLeft.interest);
+  const grand = round2(installmentTotal + lateTotal);
+
+  return (
+    <div className="calc-box">
+      <div className="calc-head">Why this interest</div>
+      <div className="calc-sub">
+        Installment #{installment.index + 1} · due {formatDate(installment.dueDate)}
+        {late?.asOf ? ` · paying ${formatDate(late.asOf)}` : ""}
+      </div>
+
+      <div className="calc-section-label">Scheduled interest (this installment)</div>
+      <div className="small muted" style={{ marginBottom: 6 }}>
+        {methodLabel(installment.interestMethod || loan.interestMethod)}
+      </div>
+      {installment.interestMethod === INTEREST_METHODS.FLAT || loan.interestMethod === INTEREST_METHODS.FLAT ? (
+        <CalcRow
+          label="This period’s interest"
+          formula={`${rupee(Number(loan.principal) || 0)} original principal × ${installment.monthlyRatePct}% per month`}
+          value={rupee(periodInterest)}
+        />
+      ) : (
+        <>
+          <CalcRow label="Outstanding at start of this period" value={rupee(installment.outstandingBefore)} />
+          <CalcRow
+            label="This period’s interest"
+            formula={`${rupee(installment.outstandingBefore)} × ${installment.monthlyRatePct}% × ${installment.daysInPeriod} days ÷ 30`}
+            value={rupee(periodInterest)}
+          />
+        </>
+      )}
+      {carried > 0.005 && (
+        <CalcRow
+          label="Plus interest accrued in earlier months of this collection"
+          value={rupee(carried)}
+        />
+      )}
+      <CalcRow label="Billed on this installment" value={rupee(billedThisMonth)} strong />
+      {round2(billedThisMonth - instLeft.interest) > 0.005 && (
+        <CalcRow label="Already paid on this installment" value={`− ${rupee(billedThisMonth - instLeft.interest)}`} />
+      )}
+      <CalcRow label="Scheduled interest still due" value={rupee(instLeft.interest)} tone="var(--text)" strong />
+
+      {late && late.calendarDays > 0 && (
+        <>
+          <div className="calc-section-label">{late.isLate ? "Late period" : "Grace window"}</div>
+          {late.isLate && (
+            <div className="calc-late-flag">
+              {late.chargeableDays} chargeable day{late.chargeableDays === 1 ? "" : "s"} past the {late.graceDays}-day grace
+            </div>
+          )}
+          <CalcRow label="Due date" value={formatDate(late.dueDate)} />
+          <CalcRow
+            label={`${late.graceDays}-day grace ends`}
+            value={formatDate(late.graceEnds)}
+          />
+          <CalcRow label="Payment date" value={formatDate(late.asOf)} />
+          <CalcRow
+            label="Days after due date"
+            value={`${late.calendarDays} day${late.calendarDays === 1 ? "" : "s"}`}
+          />
+          <CalcRow label="Minus grace" value={`− ${late.graceDays}`} />
+          <CalcRow
+            label="Chargeable days"
+            formula={`${late.chargeableDays} ÷ 30 = ${formatNumber(late.monthsLate, { precise: true })} months`}
+            value={`${late.chargeableDays} days`}
+            strong
+          />
+          <div className="small muted" style={{ margin: "6px 0 8px" }}>
+            Late rule: <b>{late.lateRuleLabel}</b>
+          </div>
+
+          {late.isLate && late.lateRule === LATE_RULES.NORMAL_INTEREST && (
+            <CalcRow
+              label="Extra late interest"
+              formula={`${rupee(late.principalBase)} unpaid principal × ${late.monthlyRatePct}% × ${late.chargeableDays} ÷ 30`}
+              value={rupee(extraInterest)}
+              tone="var(--amber)"
+            />
+          )}
+          {late.isLate && late.lateRule === LATE_RULES.ADDITIONAL_INTEREST && (
+            <CalcRow
+              label="Extra late interest"
+              formula={`${rupee(late.principalBase)} unpaid principal × (${late.monthlyRatePct}% + ${late.addRate}%) × ${late.chargeableDays} ÷ 30`}
+              value={rupee(extraInterest)}
+              tone="var(--amber)"
+            />
+          )}
+          {late.isLate && late.lateRule === LATE_RULES.FIXED_PENALTY && (
+            <CalcRow label="Fixed penalty (this installment)" value={rupee(penalty)} tone="var(--amber)" />
+          )}
+          {late.isLate && late.lateRule === LATE_RULES.PERCENTAGE_PENALTY && (
+            <CalcRow
+              label="Penalty"
+              formula={`${late.pct}% × overdue ${rupee(late.penaltyBase)} (principal + interest still due)`}
+              value={rupee(penalty)}
+              tone="var(--amber)"
+            />
+          )}
+          {late.lateRule === LATE_RULES.GRACE_ONLY && late.isLate && (
+            <div className="small muted" style={{ marginBottom: 6 }}>
+              After grace this loan does not add extra interest or a penalty. The interest figure stays the scheduled installment amount.
+            </div>
+          )}
+          {!late.isLate && (
+            <div className="small muted" style={{ marginBottom: 6 }}>
+              Payment is still inside the {late.graceDays}-day grace window, so extra late interest is {rupee(0)}.
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="calc-section-label">How it adds up</div>
+      <CalcRow label="Principal still due" value={rupee(instLeft.principal)} />
+      <CalcRow label="Scheduled interest still due" value={rupee(instLeft.interest)} />
+      {extraInterest > 0.005 && <CalcRow label="Extra late interest" value={rupee(extraInterest)} tone="var(--amber)" />}
+      {penalty > 0.005 && <CalcRow label="Late penalty" value={rupee(penalty)} tone="var(--amber)" />}
+      <CalcRow
+        label="Total interest this payment"
+        formula={
+          extraInterest > 0.005
+            ? `${rupee(instLeft.interest)} scheduled + ${rupee(extraInterest)} extra late`
+            : undefined
+        }
+        value={rupee(totalInterest)}
+        strong
+      />
+      <CalcRow
+        label="Installment amount (principal + scheduled interest)"
+        value={rupee(installmentTotal)}
+        strong
+      />
+      {lateTotal > 0.005 && (
+        <CalcRow
+          label="Plus late charges (separate ledger entry)"
+          value={rupee(lateTotal)}
+          tone="var(--amber)"
+        />
+      )}
+      <CalcRow label="To collect today if you take everything" value={rupee(grand)} strong />
+
+      {payMode === "pi" && split && (
+        <div className="small muted" style={{ marginTop: 8 }}>
+          The amount field splits as <b>principal {rupee(split.principal)}</b> + <b>scheduled interest {rupee(split.interest)}</b>
+          {split.extra > 0 ? <> · extra {rupee(split.extra)} booked as principal prepayment</> : null}
+          {lateTotal > 0.005 ? ". Late charges are not mixed into that split." : null}
+        </div>
+      )}
+
+      {late?.isLate && lateTotal > 0 && (
+        <label className="row" style={{ gap: 8, marginTop: 10, cursor: "pointer", alignItems: "flex-start" }}>
+          <input type="checkbox" checked={withLate} onChange={(e) => setWithLate(e.target.checked)} style={{ marginTop: 3 }} />
+          <span className="small">
+            Also collect late charges (<b>{rupee(lateTotal)}</b>) as a separate late-fee entry
+          </span>
+        </label>
+      )}
+    </div>
+  );
+}
 
 // ------------------------------------------------------------ MemberForm
 export function MemberFormModal({ open, onClose }) {
@@ -251,78 +443,176 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
 }
 
 // ------------------------------------------------------------ EventForm
-export function EventFormModal({ open, onClose, preset = {}, editEvent = null }) {
+
+// Split a payment amount into principal + interest legs given each side's
+// outstanding balance. Overflow beyond both balances stays with the principal
+// leg (books as an extra principal prepayment).
+function splitPayAmount(amount, principalLeft, interestLeft) {
+  const amt = Math.max(Number(amount) || 0, 0);
+  const principal = Math.min(amt, Math.max(principalLeft, 0));
+  const interest = Math.min(Math.max(amt - principal, 0), Math.max(interestLeft, 0));
+  const extra = Math.max(amt - principal - interest, 0);
+  return { principal: round2(principal), interest: round2(interest), extra: round2(extra) };
+}
+
+export function EventFormModal({ open, onClose, preset = {}, editEvent = null, onDelete = null }) {
   const { state, addEvent, updateEvent } = useKopri();
-  const [form, setForm] = useState(
-    () => {
-      const base = {
-        type: EVENT_TYPES.CONTRIBUTION,
-        date: todayISO(),
-        amount: "1000",
-        memberId: "",
-        loanId: "",
-        account: ACCOUNTS.CASH,
-        description: "",
-        sign: "positive",
-        from: ACCOUNTS.CASH,
-        to: ACCOUNTS.BANK,
-        ...preset,
-      };
-      return editEvent ? { ...base, ...editEvent } : base;
+
+  function makeForm() {
+    if (editEvent) {
+      // Edit mode: load the event verbatim so payment events keep their
+      // installmentIndex / member / loan tagging while being edited.
+      return { ...editEvent, amount: String(editEvent.amount ?? "") };
     }
-  );
+    return {
+      type: EVENT_TYPES.CONTRIBUTION,
+      date: todayISO(),
+      amount: "1000",
+      memberId: "",
+      loanId: "",
+      account: ACCOUNTS.CASH,
+      description: "",
+      sign: "positive",
+      from: ACCOUNTS.CASH,
+      to: ACCOUNTS.BANK,
+      ...preset,
+    };
+  }
+
+  const [form, setForm] = useState(makeForm);
+  const [payMode, setPayMode] = useState("pi"); // quick-pay mode: "pi" | "p" | "i"
+
+  // Re-seed the form each time the modal transitions closed → open, so a fresh
+  // preset object from the calling page always wins.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setForm(makeForm());
+      setPayMode("pi");
+      setWithLate(true);
+    }
+    wasOpen.current = open;
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const isQuickPay = preset.quickPay && !form.type;
 
-  // When quickPay is active, derive the next due installment amounts from the loan.
-  const quickPayInstallment = useMemo(() => {
-    if (!isQuickPay || !form.loanId) return null;
-    const loan = state.loans.find((l) => l.id === form.loanId);
-    if (!loan) return null;
-    const schedule = xj(loan);
-    const eventsForLoan = state.events.filter((e) => e.loanId === loan.id);
-    const paidByInstallment = Array(schedule.length).fill(0);
-    for (const ev of eventsForLoan) {
+  // --- quick-pay: record a payment against one specific installment ---
+  const isQuickPay = !editEvent && !!preset.quickPay && !!form.loanId;
+
+  const loan = useMemo(
+    () => (isQuickPay ? state.loans.find((l) => l.id === form.loanId) || null : null),
+    [isQuickPay, form.loanId, state.loans]
+  );
+  const schedule = useMemo(() => (loan ? buildSchedule(loan) : []), [loan]);
+  const targetIndex = preset.installmentIndex ?? -1;
+  const installment = targetIndex >= 0 ? schedule[targetIndex] || null : null;
+
+  // Paid-so-far per installment (principal/interest) from tagged payment events.
+  const paidByInstallment = useMemo(() => {
+    const arr = [];
+    if (!isQuickPay) return arr;
+    for (const ev of state.events) {
+      if (ev.loanId !== form.loanId) continue;
       const idx = ev.installmentIndex;
-      if (idx == null) continue;
-      if (ev.type === EVENT_TYPES.PRINCIPAL_PAYMENT) paidByInstallment[idx] += Number(ev.amount) || 0;
-      if (ev.type === EVENT_TYPES.INTEREST_PAYMENT) paidByInstallment[idx] += Number(ev.amount) || 0;
+      if (idx === undefined || idx === null) continue;
+      arr[idx] = arr[idx] || { principal: 0, interest: 0 };
+      if (ev.type === EVENT_TYPES.PRINCIPAL_PAYMENT) arr[idx].principal += Number(ev.amount) || 0;
+      else if (ev.type === EVENT_TYPES.INTEREST_PAYMENT) arr[idx].interest += Number(ev.amount) || 0;
     }
-    const nextIdx = schedule.findIndex(
-      (s, i) => paidByInstallment[i] < s.principalDue + s.interestDue - 0.5
-    );
-    if (nextIdx === -1) return null;
-    return {
-      principalLeft: Math.max(schedule[nextIdx].principalDue - paidByInstallment[nextIdx], 0),
-      interestLeft: Math.max(schedule[nextIdx].interestDue - paidByInstallment[nextIdx], 0),
-    };
-  }, [isQuickPay, form.loanId, state.loans, state.events]);
+    return arr;
+  }, [isQuickPay, form.loanId, state.events]);
 
-  // Auto-set amount to principal+interest total when quickPay opens and no type chosen yet.
-  useEffect(() => {
-    if (isQuickPay && quickPayInstallment) {
-      const total = Math.max(quickPayInstallment.principalLeft + quickPayInstallment.interestLeft, 1);
-      if (Number(form.amount) !== total) {
-        setForm((f) => ({ ...f, amount: String(total) }));
-      }
-    }
-  }, [isQuickPay, quickPayInstallment]);
+  const instLeft = useMemo(() => {
+    if (!installment) return { principal: 0, interest: 0 };
+    const paid = paidByInstallment[installment.index] || { principal: 0, interest: 0 };
+    return {
+      principal: round2(Math.max(installment.principalDue - paid.principal, 0)),
+      interest: round2(Math.max(installment.interestDue - paid.interest, 0)),
+    };
+  }, [installment, paidByInstallment]);
+
+  // Late-payment charges on this installment as of the payment date.
+  const late = useMemo(
+    () => (isQuickPay && installment ? computeLateCharges(loan, installment, instLeft.principal, instLeft.interest, form.date) : null),
+    [isQuickPay, installment, loan, instLeft.principal, instLeft.interest, form.date]
+  );
+
+  // In "Principal + interest" mode, show how the entered amount splits.
+  const split = useMemo(
+    () => (isQuickPay && payMode === "pi" && installment ? splitPayAmount(Number(form.amount) || 0, instLeft.principal, instLeft.interest) : null),
+    [isQuickPay, payMode, installment, form.amount, instLeft.principal, instLeft.interest]
+  );
 
   const needsMember = [EVENT_TYPES.CONTRIBUTION, EVENT_TYPES.WITHDRAWAL].includes(form.type);
-  const needsLoan = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE].includes(form.type);
+  const isLoanPayment = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE].includes(form.type);
   const isTransfer = form.type === EVENT_TYPES.TRANSFER;
   const isAdjustment = form.type === EVENT_TYPES.ADJUSTMENT;
-  const valid = Number(form.amount) > 0 && (isTransfer || isAdjustment || !needsMember || form.memberId) && (isTransfer || isAdjustment || !needsLoan || form.loanId);
+
+  // Collect late charges with the installment payment?
+  const [withLate, setWithLate] = useState(true);
+
+  const valid =
+    Number(form.amount) > 0 &&
+    (isQuickPay
+      ? !!installment
+      : (isTransfer || isAdjustment || !needsMember || !!form.memberId) &&
+        (isTransfer || isAdjustment || !isLoanPayment || !!form.loanId));
 
   const submit = () => {
     if (!valid) return;
+
+    // Quick-pay against a specific installment. "Principal + interest" books
+    // two linked events so the schedule, FIFO logic and reports stay exact.
+    if (isQuickPay && installment) {
+      const amt = Number(form.amount) || 0;
+      const memberId = loan?.memberId || "";
+      const desc = (form.description || "").trim() || `Installment ${installment.index + 1}`;
+      const base = {
+        date: form.date,
+        account: form.account,
+        memberId,
+        loanId: form.loanId,
+        installmentIndex: installment.index,
+      };
+      if (payMode === "pi") {
+        const { principal, interest } = splitPayAmount(amt, instLeft.principal, instLeft.interest);
+        if (principal > 0) {
+          addEvent({ ...base, type: EVENT_TYPES.PRINCIPAL_PAYMENT, amount: principal, description: `${desc} — principal` });
+        }
+        if (interest > 0) {
+          addEvent({ ...base, type: EVENT_TYPES.INTEREST_PAYMENT, amount: interest, description: `${desc} — interest` });
+        }
+      } else {
+        addEvent({
+          ...base,
+          type: payMode === "p" ? EVENT_TYPES.PRINCIPAL_PAYMENT : EVENT_TYPES.INTEREST_PAYMENT,
+          amount: amt,
+          description: desc,
+        });
+      }
+      // Late charges booked as a separate LATE_FEE event so reports stay clean.
+      if (withLate && late && late.total > 0) {
+        addEvent({
+          ...base,
+          type: EVENT_TYPES.LATE_FEE,
+          amount: late.total,
+          description: late.penalty > 0 && late.lateInterest > 0
+            ? `Late charges: ${late.daysLate}d late — interest ${formatINR(late.lateInterest)} + penalty ${formatINR(late.penalty)}`
+            : late.penalty > 0
+              ? `Late penalty (${late.daysLate}d late)`
+              : `Late interest (${late.daysLate}d @ ${late.rateLabel})`,
+        });
+      }
+      onClose();
+      return;
+    }
+
     const base = {
       date: form.date,
       amount: Number(form.amount),
       account: isTransfer ? form.from : form.account,
-      memberId: needsMember || needsLoan ? form.memberId : "",
-      loanId: needsLoan ? form.loanId : "",
+      memberId: needsMember || isLoanPayment ? form.memberId : "",
+      loanId: isLoanPayment ? form.loanId : "",
       description: form.description || (isTransfer ? "Transfer" : ""),
     };
     const payload = isTransfer
@@ -357,12 +647,21 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null })
     <Modal
       open={open}
       onClose={onClose}
-      title="Record Transaction"
+      title={editEvent ? "Edit Transaction" : isQuickPay ? "Record Installment Payment" : "Record Transaction"}
       footer={
         <>
+          {editEvent && onDelete && (
+            <Button
+              variant="danger"
+              onClick={() => onDelete(editEvent)}
+              style={{ marginRight: "auto" }}
+            >
+              Delete
+            </Button>
+          )}
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={submit} disabled={!valid}>
-            Record
+            {editEvent ? "Save changes" : isQuickPay ? "Record payment" : "Record"}
           </Button>
         </>
       }
@@ -370,47 +669,50 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null })
       <div className="form-grid">
         <Field label="Event type" className="grow" style={{ gridColumn: "1 / -1" }}>
           {isQuickPay ? (
-            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-              {[
-                [EVENT_TYPES.PRINCIPAL_PAYMENT, "Principal payment"],
-                [EVENT_TYPES.INTEREST_PAYMENT, "Interest payment"],
-                [EVENT_TYPES.PRINCIPAL_PAYMENT, "Principal + interest"],
-              ].map(([evType, label]) => (
-                <Button
-                  key={evType + label}
-                  size="sm"
-                  variant={form.type === evType && label !== "Principal + interest" ? "primary" : "ghost"}
-                  onClick={() => {
-                    const baseType = evType === EVENT_TYPES.PRINCIPAL_PAYMENT && label === "Principal + interest"
-                      ? EVENT_TYPES.PRINCIPAL_PAYMENT
-                      : evType;
-                    const isPrincipalAndInterest = label === "Principal + interest";
-                    const pLeft = quickPayInstallment?.principalLeft ?? 0;
-                    const iLeft = quickPayInstallment?.interestLeft ?? 0;
-                    let amount;
-                    if (isPrincipalAndInterest) {
-                      amount = Math.max(pLeft + iLeft, 1);
-                    } else if (label === "Principal payment") {
-                      amount = Math.max(pLeft, 1);
-                    } else {
-                      amount = Math.max(iLeft, 1);
-                    }
-                    setForm((f) => ({
-                      ...f,
-                      type: baseType,
-                      amount: String(amount),
-                      description: isPrincipalAndInterest
-                        ? `Installment — principal + interest`
-                        : label === "Principal payment"
-                          ? `Installment — principal`
-                          : `Installment — interest`,
-                    }));
-                  }}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
+            <>
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                {[
+                  { key: "pi", label: "Principal + interest", amount: instLeft.principal + instLeft.interest },
+                  { key: "p", label: "Principal only", amount: instLeft.principal },
+                  { key: "i", label: "Interest only", amount: instLeft.interest },
+                ].map((m) => (
+                  <Button
+                    key={m.key}
+                    type="button"
+                    size="sm"
+                    variant={payMode === m.key ? "primary" : "ghost"}
+                    onClick={() => {
+                      setPayMode(m.key);
+                      setForm((f) => ({ ...f, amount: String(round2(Math.max(m.amount, 0))) }));
+                    }}
+                  >
+                    {m.label}
+                  </Button>
+                ))}
+              </div>
+              {installment ? (
+                late?.isLate || instLeft.interest > 0 || instLeft.principal > 0 ? (
+                  <InterestWorking
+                    loan={loan}
+                    installment={installment}
+                    instLeft={instLeft}
+                    late={late}
+                    split={split}
+                    payMode={payMode}
+                    withLate={withLate}
+                    setWithLate={setWithLate}
+                  />
+                ) : (
+                  <div className="small muted" style={{ marginTop: 6 }}>
+                    Installment #{installment.index + 1} is already fully paid.
+                  </div>
+                )
+              ) : (
+                <div className="small muted" style={{ marginTop: 6 }}>
+                  This loan is fully repaid.
+                </div>
+              )}
+            </>
           ) : (
             <select value={form.type} onChange={set("type")}>
               {typeOptions.map(([v, l]) => (
@@ -424,7 +726,7 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null })
         <Field label="Date">
           <input type="date" value={form.date} onChange={set("date")} />
         </Field>
-        <Field label={isTransfer ? "Amount (₹)" : isAdjustment ? `Amount (₹, ${form.sign === "negative" ? "deduct" : "add"})` : "Amount (₹)"}>
+        <Field label="Amount (₹)">
           <NumberInput value={form.amount} onChange={set("amount")} min="0" />
         </Field>
 
@@ -474,29 +776,24 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null })
           </Field>
         )}
 
-        {needsLoan && (
-          <>
-            <Field label="Loan">
-              <select value={form.loanId} onChange={set("loanId")}>
-                <option value="">Select loan…</option>
-                {state.loans.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.id} — {state.members.find((m) => m.id === l.memberId)?.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Member">
-              <select value={form.memberId} onChange={set("memberId")}>
-                <option value="">Auto from loan</option>
-                {state.members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </>
+        {isLoanPayment && !isQuickPay && (
+          <Field label="Loan" className="grow">
+            <select
+              value={form.loanId}
+              onChange={(e) => {
+                const loanId = e.target.value;
+                const l = state.loans.find((x) => x.id === loanId);
+                setForm((f) => ({ ...f, loanId, memberId: l ? l.memberId : f.memberId }));
+              }}
+            >
+              <option value="">Select loan…</option>
+              {state.loans.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.id} — {state.members.find((m) => m.id === l.memberId)?.name}
+                </option>
+              ))}
+            </select>
+          </Field>
         )}
 
         <Field label="Description" className="grow" style={{ gridColumn: "1 / -1" }}>

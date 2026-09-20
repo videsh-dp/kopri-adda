@@ -10,6 +10,8 @@ import {
   INTEREST_METHODS,
   INTEREST_COLLECTION,
   PRINCIPAL_REPAYMENT,
+  LATE_RULES,
+  LATE_RULE_LABELS,
   CASH_SIGN,
   INCOME_EVENT_TYPES,
   EXPENSE_EVENT_TYPES,
@@ -90,15 +92,19 @@ export function buildSchedule(loan) {
     (collection === INTEREST_COLLECTION.QUARTERLY && ((i + 1) % 3 === 0 || i === tenure - 1)) ||
     (collection === INTEREST_COLLECTION.AT_CLOSURE && i === tenure - 1);
 
+  const monthlyRatePct = monthlyRate(loan);
+  const working = [];
   let outstanding = principal;
   let accrued = 0;
   for (let i = 0; i < tenure; i++) {
+    const days = daysInMonthISO(months[i].dueDate);
+    const outstandingBefore = outstanding;
+    const carriedIn = accrued;
     let periodInterest;
     if (method === INTEREST_METHODS.FLAT) {
       periodInterest = principal * r;
     } else {
       // reducing balance / daily outstanding (daily approximated monthly)
-      const days = daysInMonthISO(months[i].dueDate);
       periodInterest = outstanding * r * (days / 30);
     }
     accrued += periodInterest;
@@ -106,6 +112,14 @@ export function buildSchedule(loan) {
       interestDue[i] = round2(accrued);
       accrued = 0;
     }
+    working[i] = {
+      outstandingBefore: round2(outstandingBefore),
+      daysInPeriod: days,
+      monthlyRatePct,
+      periodInterest: round2(periodInterest),
+      carriedIn: round2(carriedIn),
+      interestMethod: method,
+    };
     outstanding = round2(outstanding - principalDue[i]);
   }
 
@@ -115,6 +129,7 @@ export function buildSchedule(loan) {
     principalDue: round2(principalDue[i]),
     interestDue: round2(interestDue[i]),
     totalDue: round2(principalDue[i] + interestDue[i]),
+    ...working[i],
   }));
 }
 
@@ -219,6 +234,100 @@ export function deriveLoan(loan, events, today = todayISO()) {
     totalInterestDue: round2(schedule.reduce((a, i) => a + i.interestDue, 0)),
     totalPrincipalDue: round2(schedule.reduce((a, i) => a + i.principalDue, 0)),
     paidRatio: (Number(loan.principal) || 0) > 0 ? clamp(principalPaid / Number(loan.principal), 0, 1) : 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Late-payment charges (per the loan's late rule) as of a given date
+// ---------------------------------------------------------------------------
+
+// Charges accrued on one installment as of `asOf`, following loan.lateRule.
+// Late interest accrues on the outstanding principal for the days beyond the
+// due date + grace period; fixed/percentage penalties follow the rule table.
+export function computeLateCharges(loan, inst, principalLeft, interestLeft, asOf = todayISO()) {
+  const graceDays = Number(loan.gracePeriodDays) || 0;
+  const calendarDays = daysBetween(inst.dueDate, asOf);
+  const chargeableDays = calendarDays - graceDays;
+  const principalBase = round2(Math.max(principalLeft, 0));
+  const interestBase = round2(Math.max(interestLeft, 0));
+  const overdueBase = round2(principalBase + interestBase);
+  const monthlyRatePct = monthlyRate(loan);
+  const addRate = Number(loan.lateAdditionalInterestRate) || 0;
+  const empty = {
+    isLate: false,
+    daysLate: 0,
+    calendarDays: Math.max(calendarDays, 0),
+    graceDays,
+    chargeableDays: 0,
+    monthsLate: 0,
+    graceEnds: addDaysISO(inst.dueDate, graceDays),
+    dueDate: inst.dueDate,
+    asOf,
+    lateInterest: 0,
+    penalty: 0,
+    total: 0,
+    rateLabel: "",
+    pct: 0,
+    penaltyBase: 0,
+    fixedFlat: 0,
+    monthlyRatePct,
+    addRate,
+    combinedRate: monthlyRatePct,
+    principalBase,
+    overdueBase,
+    lateRule: loan.lateRule,
+    lateRuleLabel: LATE_RULE_LABELS[loan.lateRule] || loan.lateRule,
+  };
+  if (chargeableDays <= 0 || overdueBase <= 0.5) return empty;
+
+  const monthsLate = chargeableDays / 30;
+  let lateInterest = 0;
+  let penalty = 0;
+  let rateLabel = "";
+  let pct = 0;
+  let penaltyBase = 0;
+  let fixedFlat = 0;
+  let combinedRate = monthlyRatePct;
+
+  switch (loan.lateRule) {
+    case LATE_RULES.ADDITIONAL_INTEREST: {
+      combinedRate = monthlyRatePct + addRate;
+      lateInterest = round2(principalBase * (combinedRate / 100) * monthsLate);
+      rateLabel = `${monthlyRatePct}% + ${addRate}%/mo`;
+      break;
+    }
+    case LATE_RULES.NORMAL_INTEREST:
+      lateInterest = round2(principalBase * (monthlyRatePct / 100) * monthsLate);
+      rateLabel = `${monthlyRatePct}%/mo`;
+      break;
+    case LATE_RULES.FIXED_PENALTY:
+      fixedFlat = round2(Number(loan.lateFixedPenalty) || 0);
+      penalty = fixedFlat;
+      break;
+    case LATE_RULES.PERCENTAGE_PENALTY:
+      pct = Number(loan.latePercentagePenalty) || 0;
+      penaltyBase = overdueBase;
+      penalty = round2(overdueBase * (pct / 100));
+      break;
+    case LATE_RULES.GRACE_ONLY:
+    default:
+      break; // grace covers it — no extra charges
+  }
+
+  return {
+    ...empty,
+    isLate: true,
+    daysLate: chargeableDays,
+    chargeableDays,
+    monthsLate,
+    lateInterest,
+    penalty,
+    total: round2(lateInterest + penalty),
+    rateLabel,
+    pct,
+    penaltyBase,
+    fixedFlat,
+    combinedRate,
   };
 }
 

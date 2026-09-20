@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { deriveMember, deriveLoan, sortLedger } from "../lib/calculations.js";
-import { formatINR, formatDate } from "../lib/format.js";
+import { formatINR, formatDate, round2 } from "../lib/format.js";
 import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
 import { IconPlus, IconArrow, IconCash } from "../components/Icons.jsx";
@@ -166,7 +166,7 @@ export default function MemberDetail() {
                             variant="primary"
                             onClick={(e) => {
                               e.stopPropagation();
-                              const amt = Math.max(l.principalLeft + l.interestLeft, 1);
+                              const amt = round2(Math.max(l.principalLeft + l.interestLeft, 0));
                               const nextInstallment = l.installments.find(
                                 (i) => i.status === "due" || i.status === "overdue"
                               );
@@ -177,6 +177,7 @@ export default function MemberDetail() {
                                 date: new Date().toISOString().slice(0, 10),
                                 description: `Pay ${nextInstallment ? `installment #${nextInstallment.index + 1}` : "loan repayment"}`,
                                 quickPay: true,
+                                installmentIndex: nextInstallment ? nextInstallment.index : undefined,
                               });
                               setQuickRecord({ memberId: id, loanId: l.id });
                               toast(`Recording repayment for ${l.id.toUpperCase()}.`);
@@ -256,7 +257,6 @@ export default function MemberDetail() {
         open={!!showEvent}
         onClose={() => { setShowEvent(null); setQuickRecord(null); }}
         preset={showEvent || {}}
-        editEvent={quickRecord}
       />
     </div>
   );

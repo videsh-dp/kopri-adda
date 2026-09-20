@@ -226,7 +226,16 @@ export default function Ledger() {
       </div>
 
       <EventFormModal open={showAdd} onClose={() => setShowAdd(false)} />
-      <EventFormModal open={!!editEvent} onClose={() => setEditEvent(null)} editEvent={editEvent} />
+      <EventFormModal
+        open={!!editEvent}
+        onClose={() => setEditEvent(null)}
+        editEvent={editEvent}
+        onDelete={(ev) => {
+          deleteEvent(ev.id);
+          toast("Transaction deleted.");
+          setEditEvent(null);
+        }}
+      />
       <ConfirmModal
         open={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
