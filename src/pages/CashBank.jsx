@@ -21,6 +21,7 @@ const LABELS = {
   LOAN_WRITE_OFF: "Write-off",
   PROFIT_ALLOCATION: "Profit allocated",
   MEMBER_SETTLEMENT: "Settlement",
+  MANAGER_PAYOUT: "Manager's share",
 };
 
 export default function CashBank() {

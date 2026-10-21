@@ -16,7 +16,7 @@
 // ---------------------------------------------------------------------------
 
 import { DEFAULT_RULES } from "../lib/constants.js";
-import { uid, todayISO } from "../lib/format.js";
+import { uid, todayISO, round2 } from "../lib/format.js";
 import { buildDemoState } from "../lib/demoData.js";
 import { loanReferralError } from "../lib/calculations.js";
 
@@ -282,6 +282,22 @@ function bookReducer(book, action) {
           description: `FY ${y.year} settlement payout (capital + profit)`,
           createdAt: new Date().toISOString(),
         }));
+      // The manager's share was taken off profit at year end; pay it out now.
+      const managerShare = round2(Number(y.managerCharges) || 0);
+      if (managerShare > 0.5) {
+        settlementEvents.push({
+          id: uid("ev"),
+          date: action.date || todayISO(),
+          type: "MANAGER_PAYOUT",
+          memberId: "",
+          loanId: "",
+          amount: managerShare,
+          account: "cash",
+          reference: "",
+          description: `FY ${y.year} manager's share (${book.rules?.managerChargesRate ?? ""}% of profit)`,
+          createdAt: new Date().toISOString(),
+        });
+      }
       return {
         ...book,
         yearEnds: book.yearEnds.map((x) => (x.year === action.year ? { ...x, settled: true, settledDate: action.date || todayISO() } : x)),

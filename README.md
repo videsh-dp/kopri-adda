@@ -25,6 +25,7 @@ The app opens pre-loaded with a **realistic demo Kopri** (7 members, 5 loans in 
 | `npm run build` | Production build to `dist/` |
 | `npm run preview` | Serve the production build locally |
 | `npm run test:store` | Unit tests for the multi-Kopri store (no browser) |
+| `npm run test:manager` | End-to-end manager workflow in headless Chrome: rules, members, borrower, deposits and late fees, referred loan, every pay mode, year end with the manager's share (dev server running) |
 | `npm run test:ui` | End-to-end UI test in headless Chrome (needs `CHROME_PATH` if Chrome isn't in the default location, and the dev server running) |
 
 ## Running multiple Kopris
@@ -50,7 +51,7 @@ The app opens pre-loaded with a **realistic demo Kopri** (7 members, 5 loans in 
 - **Loans** — every new loan must be referred by an active depositing member (rule can be switched off); create loans with full terms, a configurable late fee per loan, late fees shown as they build up, repayment schedule table, per-installment status (paid/due/overdue with grace periods), record repayments, guarantors & security
 - **Ledger** — every financial event, filterable and searchable, with running pool balance
 - **Cash & Bank** — cash vs bank balances, transfers between them
-- **Year-End** — profit waterfall (income → expenses → reserve → manager charges → distributable), profit allocation per member, save allocation (creates ledger events), settle payouts
+- **Year-End** — profit waterfall (income → expenses → reserve → manager charges → distributable), profit allocation per member, save allocation (creates ledger events), settle payouts (members' capital + profit, and the manager's share)
 - **Reports** — outstanding loans, overdue, member capital, contributions, interest, full-ledger CSV export
 - **Kopri Rules** — everything configurable: interest rate/method/collection, principal repayment, grace period, late rules, unpaid-interest handling, reserve & manager charge rates, profit distribution method
 - **Multiple Kopris** — switch between isolated pools from the top bar; each keeps its own rules, members, loans and ledger
