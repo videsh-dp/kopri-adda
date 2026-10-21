@@ -1,6 +1,6 @@
 import puppeteer from "puppeteer-core";
-
-const CHROME = process.env.CHROME_PATH || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+import { findChrome, freshProfileDir } from "./chrome.mjs";
+const CHROME = findChrome();
 const BASE = process.env.BASE_URL || "http://localhost:5173";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
@@ -9,18 +9,11 @@ const ok = (name, cond) => {
   if (!cond) failures++;
 };
 
-// Sanity: fail fast if Chrome isn't where expected
-import { existsSync } from "node:fs";
-if (!existsSync(CHROME)) {
-  console.error(`Chrome not found at ${CHROME}. Set CHROME_PATH to your Chrome executable.`);
-  process.exit(1);
-}
-
 const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: "new",
   args: ["--no-sandbox", "--disable-gpu"],
-  userDataDir: "C:\\Users\\obmar\\AppData\\Local\\Temp\\kopri-ui-profile",
+  userDataDir: freshProfileDir("kopri-ui-profile"),
 });
 
 try {

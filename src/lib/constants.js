@@ -32,8 +32,8 @@ export const EVENT_META = {
   [EVENT_TYPES.OTHER_INCOME]: { label: "Other Income", sign: "+", account: "cash", color: "#16a34a" },
   [EVENT_TYPES.TRANSFER]: { label: "Transfer (Cash ↔ Bank)", sign: "0", account: "cash", color: "#64748b" },
   [EVENT_TYPES.ADJUSTMENT]: { label: "Adjustment", sign: "+", account: "cash", color: "#7c3aed" },
-  [EVENT_TYPES.LOAN_WRITE_OFF]: { label: "Bad Debt Write-off", sign: "-", account: "cash", color: "#dc2626" },
-  [EVENT_TYPES.PROFIT_ALLOCATION]: { label: "Profit Allocation", sign: "+", account: "cash", color: "#4f46e5" },
+  [EVENT_TYPES.LOAN_WRITE_OFF]: { label: "Bad Debt Write-off", sign: "0", account: "cash", color: "#dc2626" },
+  [EVENT_TYPES.PROFIT_ALLOCATION]: { label: "Profit Allocation", sign: "0", account: "cash", color: "#4f46e5" },
   [EVENT_TYPES.MEMBER_SETTLEMENT]: { label: "Year-end Settlement", sign: "-", account: "cash", color: "#dc2626" },
 };
 
@@ -49,8 +49,8 @@ export const CASH_SIGN = {
   [EVENT_TYPES.OTHER_INCOME]: +1,
   [EVENT_TYPES.TRANSFER]: 0, // handled via account field
   [EVENT_TYPES.ADJUSTMENT]: +1, // sign stored on the event itself
-  [EVENT_TYPES.LOAN_WRITE_OFF]: -1,
-  [EVENT_TYPES.PROFIT_ALLOCATION]: +1, // book entry: pool owes member
+  [EVENT_TYPES.LOAN_WRITE_OFF]: 0, // non-cash: reduces the loan's outstanding principal
+  [EVENT_TYPES.PROFIT_ALLOCATION]: 0, // non-cash book entry: pool owes member
   [EVENT_TYPES.MEMBER_SETTLEMENT]: -1,
 };
 

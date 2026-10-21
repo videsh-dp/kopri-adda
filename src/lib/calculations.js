@@ -29,12 +29,6 @@ export function monthlyRate(loan) {
   return loan.rateUnit === "yearly" ? rate / 12 : rate;
 }
 
-// Days in a given month (approximates daily-outstanding interest for V1).
-function daysInMonthISO(iso) {
-  const [y, m] = iso.split("-").map(Number);
-  return new Date(y, m, 0).getDate();
-}
-
 function equalSplit(total, parts) {
   const base = Math.floor(total / parts);
   const out = Array(parts).fill(base);
@@ -77,7 +71,7 @@ export function buildSchedule(loan) {
   }
   // Custom override — a user-editable amount table stored on the loan.
   if (Array.isArray(loan.customPrincipalSchedule) && loan.customPrincipalSchedule.length === tenure) {
-    const totalCustom = loan.customPrincipalSchedule.reduce((a, b) => a + Number(b) || 0, 0);
+    const totalCustom = loan.customPrincipalSchedule.reduce((a, b) => a + (Number(b) || 0), 0);
     if (Math.abs(totalCustom - principal) < 1) {
       principalDue = loan.customPrincipalSchedule.map((v) => Number(v) || 0);
     }
@@ -85,7 +79,8 @@ export function buildSchedule(loan) {
 
   // --- Interest schedule ---
   // Flat: interest on the full principal, split across collection months.
-  // Reducing/daily: interest on outstanding principal at period start.
+  // Reducing: outstanding principal at period start × monthly rate.
+  // Daily: same, pro-rated by the actual days in the period ÷ 30.
   let interestDue = Array(tenure).fill(0);
   const isCollectionMonth = (i) =>
     collection === INTEREST_COLLECTION.MONTHLY ||
@@ -97,15 +92,17 @@ export function buildSchedule(loan) {
   let outstanding = principal;
   let accrued = 0;
   for (let i = 0; i < tenure; i++) {
-    const days = daysInMonthISO(months[i].dueDate);
+    const periodStart = i === 0 ? loan.startDate : months[i - 1].dueDate;
+    const days = daysBetween(periodStart, months[i].dueDate);
     const outstandingBefore = outstanding;
     const carriedIn = accrued;
     let periodInterest;
     if (method === INTEREST_METHODS.FLAT) {
       periodInterest = principal * r;
-    } else {
-      // reducing balance / daily outstanding (daily approximated monthly)
+    } else if (method === INTEREST_METHODS.DAILY_OUTSTANDING) {
       periodInterest = outstanding * r * (days / 30);
+    } else {
+      periodInterest = outstanding * r;
     }
     accrued += periodInterest;
     if (isCollectionMonth(i)) {
@@ -133,6 +130,18 @@ export function buildSchedule(loan) {
   }));
 }
 
+// Split a payment amount into principal + interest legs given each side's
+// outstanding balance. Interest due is cleared first, then principal; any
+// overflow beyond both is an extra principal prepayment (included in
+// `principal`, and shown separately as `extra`).
+export function splitPayAmount(amount, principalLeft, interestLeft) {
+  const amt = Math.max(Number(amount) || 0, 0);
+  const interest = Math.min(amt, Math.max(interestLeft, 0));
+  const due = Math.min(amt - interest, Math.max(principalLeft, 0));
+  const extra = Math.max(amt - interest - due, 0);
+  return { principal: round2(due + extra), interest: round2(interest), extra: round2(extra) };
+}
+
 // ---------------------------------------------------------------------------
 // Loan state derived from ledger events
 // ---------------------------------------------------------------------------
@@ -149,26 +158,41 @@ export function deriveLoan(loan, events, today = todayISO()) {
   const schedule = buildSchedule(loan);
 
   const totals = { principal: 0, interest: 0, lateFee: 0 };
+  let writtenOff = 0;
   const perInstallment = schedule.map(() => ({ principal: 0, interest: 0, lateFee: 0 }));
   // Payments recorded without an installmentIndex (e.g. via the ledger form)
   // are attributed FIFO: earliest unpaid installment gets the money first.
   const unassigned = { principal: [], interest: [], lateFee: [] };
 
   for (const e of loanEvents) {
+    if (e.type === EVENT_TYPES.LOAN_WRITE_OFF) {
+      writtenOff += Number(e.amount) || 0;
+      continue;
+    }
     const kind = PAYMENT_TYPE_TO_KIND[e.type];
     if (!kind) continue;
     const amount = Number(e.amount) || 0;
     totals[kind] += amount;
     const idx = e.installmentIndex;
     if (idx !== undefined && idx !== null && perInstallment[idx]) {
-      perInstallment[idx][kind] += amount;
-    } else {
+      if (kind === "lateFee") {
+        perInstallment[idx].lateFee += amount;
+        continue;
+      }
+      // Anything beyond what this installment still needs is a prepayment:
+      // it flows FIFO into the next unpaid installments.
+      const need = Math.max(0, schedule[idx][`${kind}Due`] - perInstallment[idx][kind]);
+      const take = Math.min(need, amount);
+      perInstallment[idx][kind] += take;
+      if (amount - take > 0.005) unassigned[kind].push(amount - take);
+    } else if (kind !== "lateFee") {
       unassigned[kind].push(amount);
     }
   }
 
-  // FIFO fallback: fill unpaid installments from oldest to newest
-  for (const kind of ["principal", "interest", "lateFee"]) {
+  // FIFO fallback: fill unpaid installments from oldest to newest.
+  // Late fees have no schedule, so untagged ones only count toward totals.
+  for (const kind of ["principal", "interest"]) {
     let queue = unassigned[kind].slice();
     for (let i = 0; i < schedule.length && queue.length; i++) {
       const need = Math.max(0, schedule[i][`${kind}Due`] - perInstallment[i][kind]);
@@ -183,7 +207,9 @@ export function deriveLoan(loan, events, today = todayISO()) {
   const principalPaid = round2(totals.principal);
   const interestPaid = round2(totals.interest);
   const lateFeesPaid = round2(totals.lateFee);
-  const outstandingPrincipal = round2(Math.max(0, (Number(loan.principal) || 0) - principalPaid));
+  const principalWrittenOff = round2(writtenOff);
+  const outstandingPrincipal = round2(Math.max(0, (Number(loan.principal) || 0) - principalPaid - principalWrittenOff));
+  const isWrittenOff = principalWrittenOff > 0.5 && outstandingPrincipal <= 0.5;
 
   const grace = Number(loan.gracePeriodDays) || 0;
   let overduePrincipal = 0;
@@ -195,7 +221,7 @@ export function deriveLoan(loan, events, today = todayISO()) {
     const principalLeft = round2(Math.max(0, inst.principalDue - paid.principal));
     const interestLeft = round2(Math.max(0, inst.interestDue - paid.interest));
     const due = daysBetween(inst.dueDate, today);
-    const overdue = principalLeft + interestLeft > 0.5 && due > grace;
+    const overdue = !isWrittenOff && principalLeft + interestLeft > 0.5 && due > grace;
     if (overdue) {
       overduePrincipal += principalLeft;
       overdueInterest += interestLeft;
@@ -208,12 +234,12 @@ export function deriveLoan(loan, events, today = todayISO()) {
       lateFeePaid: round2(paid.lateFee),
       principalLeft: round2(principalLeft),
       interestLeft: round2(interestLeft),
-      status: principalLeft + interestLeft <= 0.5 ? "paid" : overdue ? "overdue" : "due",
+      status: principalLeft + interestLeft <= 0.5 ? "paid" : isWrittenOff ? "written_off" : overdue ? "overdue" : "due",
       overdueDays: overdue ? due : 0,
     };
   });
 
-  const fullyPaid = outstandingPrincipal <= 0.5 && installments.every((i) => i.status === "paid");
+  const fullyPaid = !isWrittenOff && outstandingPrincipal <= 0.5 && installments.every((i) => i.status === "paid");
   const isOverdue = overduePrincipal + overdueInterest > 0.5;
 
   return {
@@ -223,6 +249,8 @@ export function deriveLoan(loan, events, today = todayISO()) {
     principalPaid,
     interestPaid,
     lateFeesPaid,
+    principalWrittenOff,
+    isWrittenOff,
     outstandingPrincipal,
     totalOutstanding: round2(outstandingPrincipal + overdueInterest),
     overduePrincipal: round2(overduePrincipal),
@@ -230,7 +258,14 @@ export function deriveLoan(loan, events, today = todayISO()) {
     overdueDaysMax,
     isOverdue,
     fullyPaid,
-    effectiveStatus: loan.status === "defaulted" ? "defaulted" : loan.status === "completed" || fullyPaid ? "completed" : isOverdue ? "overdue" : loan.status,
+    effectiveStatus:
+      loan.status === "defaulted" || isWrittenOff
+        ? "defaulted"
+        : loan.status === "completed" || fullyPaid
+          ? "completed"
+          : isOverdue
+            ? "overdue"
+            : loan.status,
     totalInterestDue: round2(schedule.reduce((a, i) => a + i.interestDue, 0)),
     totalPrincipalDue: round2(schedule.reduce((a, i) => a + i.principalDue, 0)),
     paidRatio: (Number(loan.principal) || 0) > 0 ? clamp(principalPaid / Number(loan.principal), 0, 1) : 0,
@@ -366,8 +401,10 @@ export function deriveMember(member, events, loans) {
     }
   }
 
-  const capital = round2(contributions - withdrawals);
-  const entitlement = round2(capital + profitAllocated - settled);
+  // Settlement payouts use up allocated profit first, then capital, so after a
+  // full year-end settlement both capital and entitlement are back to zero.
+  const capital = round2(contributions - withdrawals - Math.max(0, settled - profitAllocated));
+  const entitlement = round2(contributions - withdrawals + profitAllocated - settled);
 
   const memberLoans = loans
     .filter((l) => l.memberId === member.id)
@@ -393,12 +430,18 @@ export function deriveMember(member, events, loans) {
 // Cash & bank — derived from events
 // ---------------------------------------------------------------------------
 
+// Signed effect of one event on the pool's cash + bank total (transfers are 0).
+export function cashDelta(e) {
+  const amt = Number(e.amount) || 0;
+  if (e.type === EVENT_TYPES.ADJUSTMENT) return e.sign === "negative" ? -amt : amt;
+  return (CASH_SIGN[e.type] || 0) * amt;
+}
+
 export function deriveAccounts(events) {
   let cash = 0;
   let bank = 0;
   for (const e of events) {
     const amt = Number(e.amount) || 0;
-    const sign = e.type === EVENT_TYPES.ADJUSTMENT ? (e.sign === "negative" ? -1 : 1) : CASH_SIGN[e.type] || 0;
     if (e.type === EVENT_TYPES.TRANSFER) {
       if (e.from === ACCOUNTS.CASH && e.to === ACCOUNTS.BANK) {
         cash -= amt;
@@ -410,8 +453,8 @@ export function deriveAccounts(events) {
       continue;
     }
     const target = e.account === ACCOUNTS.BANK ? "bank" : "cash";
-    if (target === "bank") bank += sign * amt;
-    else cash += sign * amt;
+    if (target === "bank") bank += cashDelta(e);
+    else cash += cashDelta(e);
   }
   return {
     cash: round2(cash),
@@ -473,94 +516,139 @@ export function sortLedger(events) {
 // Year-end computation
 // ---------------------------------------------------------------------------
 
+// Financial-year bounds for the FY that starts in `fyYear` (e.g. 2025 with
+// financialYearStart "04-01" → 2025-04-01 … 2026-03-31).
+export function financialYearBounds(fyYear, financialYearStart = "04-01") {
+  const start = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(financialYearStart || "") ? financialYearStart : "04-01";
+  const yearStart = `${fyYear}-${start}`;
+  return { yearStart, yearEndDate: addDaysISO(addMonthsISO(yearStart, 12), -1) };
+}
+
+// Change to a member's balance with the pool from one event (money they are
+// owed: deposits and retained profit, less withdrawals and payouts).
+function memberBalanceDelta(e) {
+  const amt = Number(e.amount) || 0;
+  switch (e.type) {
+    case EVENT_TYPES.CONTRIBUTION:
+    case EVENT_TYPES.PROFIT_ALLOCATION:
+      return amt;
+    case EVENT_TYPES.WITHDRAWAL:
+    case EVENT_TYPES.MEMBER_SETTLEMENT:
+      return -amt;
+    default:
+      return 0;
+  }
+}
+
 export function computeYearEnd(state, yearEndDate) {
   const { events, members, rules, yearEnds } = state;
-  // The financial year is named for the year it began: FY ending 2027-03-31
-  // started on 2026-04-01, i.e. calendarYear(yearEnd) - 1 + financialYearStart.
-  const fyYear = Number(yearEndDate.slice(0, 4)) - 1;
-  const yearStart = `${fyYear}-${rules.financialYearStart}`;
+  // The FY is named for the year it began; it ends the day before the same
+  // date one year after it starts.
+  const yearStart = addDaysISO(addMonthsISO(yearEndDate, -12), 1);
+  const fyYear = Number(yearStart.slice(0, 4));
 
   const inYear = (e) => e.date >= yearStart && e.date <= yearEndDate;
+  const sumInYear = (types) =>
+    round2(events.filter((e) => inYear(e) && types.includes(e.type)).reduce((a, e) => a + (Number(e.amount) || 0), 0));
 
-  const interestCollected = round2(events.filter((e) => inYear(e) && e.type === EVENT_TYPES.INTEREST_PAYMENT).reduce((a, e) => a + (Number(e.amount) || 0), 0));
-  const penaltiesCollected = round2(events.filter((e) => inYear(e) && e.type === EVENT_TYPES.LATE_FEE).reduce((a, e) => a + (Number(e.amount) || 0), 0));
-  const otherIncome = round2(events.filter((e) => inYear(e) && e.type === EVENT_TYPES.OTHER_INCOME).reduce((a, e) => a + (Number(e.amount) || 0), 0));
-  const expenses = round2(events.filter((e) => inYear(e) && EXPENSE_EVENT_TYPES.includes(e.type)).reduce((a, e) => a + (Number(e.amount) || 0), 0));
-  const badDebt = round2(events.filter((e) => inYear(e) && e.type === EVENT_TYPES.LOAN_WRITE_OFF).reduce((a, e) => a + (Number(e.amount) || 0), 0));
+  const interestCollected = sumInYear([EVENT_TYPES.INTEREST_PAYMENT]);
+  const penaltiesCollected = sumInYear([EVENT_TYPES.LATE_FEE]);
+  const otherIncome = sumInYear([EVENT_TYPES.OTHER_INCOME]);
+  const expenses = sumInYear(EXPENSE_EVENT_TYPES);
+  const badDebt = sumInYear([EVENT_TYPES.LOAN_WRITE_OFF]);
 
   const grossProfit = round2(interestCollected + penaltiesCollected + otherIncome - expenses - badDebt);
-  const reserve = round2((grossProfit * (Number(rules.reserveRate) || 0)) / 100);
-  const managerCharges = round2((grossProfit * (Number(rules.managerChargesRate) || 0)) / 100);
+  // Reserve and manager's charges only come out of a profit, never a loss.
+  const reserve = grossProfit > 0 ? round2((grossProfit * (Number(rules.reserveRate) || 0)) / 100) : 0;
+  const managerCharges = grossProfit > 0 ? round2((grossProfit * (Number(rules.managerChargesRate) || 0)) / 100) : 0;
   const distributable = round2(grossProfit - reserve - managerCharges);
 
-  const memberViews = members.map((m) => deriveMember(m, events, state.loans));
-
-  // Contribution × time for the year (weighted by days held)
+  // Each member's balance with the pool through the year: opening balance
+  // held all year, then every in-year movement weighted by the days it was
+  // held up to year end. This year's own profit allocation (dated on the
+  // year-end date) is excluded so saving it doesn't change the split.
   const yearDays = Math.max(1, daysBetween(yearStart, yearEndDate) + 1);
+  const isThisYearsAllocation = (e) => e.type === EVENT_TYPES.PROFIT_ALLOCATION && e.date === yearEndDate;
   const memberWeights = members.map((m) => {
-    const contribs = events.filter((e) => inYear(e) && e.memberId === m.id && (e.type === EVENT_TYPES.CONTRIBUTION || e.type === EVENT_TYPES.WITHDRAWAL));
+    let opening = 0;
+    let closing = 0;
     let weighted = 0;
-    for (const c of contribs) {
-      const days = Math.max(0, daysBetween(c.date, yearEndDate) + 1);
-      weighted += (Number(c.amount) || 0) * days;
+    for (const e of events) {
+      if (e.memberId !== m.id || e.date > yearEndDate || isThisYearsAllocation(e)) continue;
+      const delta = memberBalanceDelta(e);
+      if (!delta) continue;
+      closing += delta;
+      if (e.date < yearStart) opening += delta;
+      else weighted += delta * (daysBetween(e.date, yearEndDate) + 1);
     }
-    return { memberId: m.id, weighted, days: yearDays, average: weighted / yearDays };
+    weighted = Math.max(0, weighted + opening * yearDays);
+    return {
+      memberId: m.id,
+      opening: round2(opening),
+      capital: round2(Math.max(0, closing)),
+      weighted,
+      days: yearDays,
+      average: weighted / yearDays,
+    };
   });
 
-  const totalWeighted = memberWeights.reduce((a, w) => a + w.weighted, 0);
-  const totalCapital = memberViews.reduce((a, m) => a + m.capital, 0);
-  const activeMembers = memberViews.filter((m) => m.capital > 0);
+  const eligible = memberWeights.filter((w) => w.capital > 0.5 || w.weighted > 0.5);
+  const totalWeighted = eligible.reduce((a, w) => a + w.weighted, 0);
+  const totalAverage = eligible.reduce((a, w) => a + w.average, 0);
+  const totalCapital = round2(eligible.reduce((a, w) => a + w.capital, 0));
+  const withCapital = eligible.filter((w) => w.capital > 0.5);
+  const method = rules.profitDistribution;
 
-  const allocations = activeMembers.map((m) => {
-    const w = memberWeights.find((x) => x.memberId === m.id) || { weighted: 0, average: 0 };
+  const allocations = eligible.map((w) => {
     let share = 0;
-    switch (rules.profitDistribution) {
+    switch (method) {
       case PROFIT_DISTRIBUTION.EQUAL:
-        share = activeMembers.length ? distributable / activeMembers.length : 0;
+        share = w.capital > 0.5 && withCapital.length ? distributable / withCapital.length : 0;
         break;
       case PROFIT_DISTRIBUTION.CURRENT_CONTRIBUTION:
-        share = totalCapital > 0 ? (distributable * m.capital) / totalCapital : 0;
+        share = totalCapital > 0 ? (distributable * w.capital) / totalCapital : 0;
         break;
       case PROFIT_DISTRIBUTION.AVERAGE_CONTRIBUTION:
-        share = totalWeighted > 0 ? (distributable * w.average) / (totalWeighted / memberWeights.length || 1) : 0;
+        share = totalAverage > 0 ? (distributable * w.average) / totalAverage : 0;
         break;
       case PROFIT_DISTRIBUTION.CONTRIBUTION_X_TIME:
         share = totalWeighted > 0 ? (distributable * w.weighted) / totalWeighted : 0;
         break;
-      case PROFIT_DISTRIBUTION.CUSTOM:
-        share = 0; // filled in from yearEnd record if present
-        break;
       default:
-        share = 0;
+        share = 0; // custom: entered by hand on the year-end page
     }
     return {
-      memberId: m.id,
-      capital: m.capital,
+      memberId: w.memberId,
+      capital: w.capital,
       averageContribution: w.average,
       weighted: w.weighted,
       profitShare: round2(share),
-      settlement: round2(m.capital + share),
+      settlement: 0,
     };
   });
 
-  // Custom override allocations if this year already exists
+  // Saved allocations (and custom shares) win over the computed ones
   const existing = yearEnds?.find((y) => y.year === String(fyYear));
   if (existing && existing.allocations) {
     for (const a of allocations) {
-      const custom = existing.allocations.find((x) => x.memberId === a.memberId);
-      if (custom) a.profitShare = custom.profitShare;
+      const saved = existing.allocations.find((x) => x.memberId === a.memberId);
+      if (saved) a.profitShare = Number(saved.profitShare) || 0;
     }
   }
 
-  // Rounding adjustment: make allocations sum exactly to distributable
-  const totalAllocated = round2(allocations.reduce((a, x) => a + x.profitShare, 0));
-  if (allocations.length > 0 && Math.abs(totalAllocated - distributable) > 0.01) {
-    const diff = round2(distributable - totalAllocated);
-    allocations[0].profitShare = round2(allocations[0].profitShare + diff);
+  // Rounding: make computed shares sum exactly to distributable by putting the
+  // paise left over on the largest share. Custom splits are left as entered.
+  if (method !== PROFIT_DISTRIBUTION.CUSTOM && !existing && allocations.length > 0) {
+    const diff = round2(distributable - allocations.reduce((a, x) => a + x.profitShare, 0));
+    if (Math.abs(diff) >= 0.01 && Math.abs(diff) < 1) {
+      const largest = allocations.reduce((best, x) => (x.profitShare > best.profitShare ? x : best), allocations[0]);
+      largest.profitShare = round2(largest.profitShare + diff);
+    }
   }
   allocations.forEach((a) => {
     a.settlement = round2(a.capital + a.profitShare);
   });
+  const totalAllocated = round2(allocations.reduce((a, x) => a + x.profitShare, 0));
 
   return {
     year: String(fyYear),
@@ -575,10 +663,17 @@ export function computeYearEnd(state, yearEndDate) {
     reserve,
     managerCharges,
     distributable,
+    totalAllocated,
     allocations,
     memberWeights,
     totalCapital,
   };
+}
+
+// The FY (named by its start year) that contains `iso`.
+export function financialYearOf(iso, financialYearStart = "04-01") {
+  const y = Number(iso.slice(0, 4));
+  return iso < financialYearBounds(y, financialYearStart).yearStart ? y - 1 : y;
 }
 
 // ---------------------------------------------------------------------------
@@ -615,11 +710,9 @@ export function monthlyCashFlow(events, months = 12) {
   for (const e of events) {
     const bucket = buckets.find((b) => e.date.slice(0, 7) === b.month.slice(0, 7));
     if (!bucket) continue;
-    const sign = e.type === EVENT_TYPES.ADJUSTMENT ? (e.sign === "negative" ? -1 : 1) : CASH_SIGN[e.type] || 0;
-    const amt = Number(e.amount) || 0;
-    if (e.type === EVENT_TYPES.TRANSFER) continue;
-    if (sign > 0) bucket.inflows += amt;
-    else if (sign < 0) bucket.outflows += amt;
+    const delta = cashDelta(e);
+    if (delta > 0) bucket.inflows += delta;
+    else if (delta < 0) bucket.outflows -= delta;
   }
   return buckets.map((b) => ({ ...b, inflows: round2(b.inflows), outflows: round2(b.outflows), net: round2(b.inflows - b.outflows) }));
 }

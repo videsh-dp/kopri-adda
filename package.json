@@ -8,8 +8,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "node scripts/calc-test.mjs && node scripts/store-test.mjs",
+    "test:calc": "node scripts/calc-test.mjs",
     "test:store": "node scripts/store-test.mjs",
-    "test:ui": "node scripts/ui-test.mjs"
+    "test:ui": "node scripts/ui-test.mjs",
+    "test:flow": "node scripts/flow-test.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

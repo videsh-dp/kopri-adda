@@ -1,27 +1,46 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
-import { computeYearEnd } from "../lib/calculations.js";
+import { computeYearEnd, financialYearBounds, financialYearOf, deriveAccounts } from "../lib/calculations.js";
 import { formatINR, formatDate, todayISO } from "../lib/format.js";
-import { Card, StatCard, Button, Badge, Avatar, EmptyState, Modal, toast } from "../components/ui.jsx";
+import { Card, StatCard, Button, Badge, Avatar, EmptyState, Modal, NumberInput, toast } from "../components/ui.jsx";
 import { PROFIT_DISTRIBUTION } from "../lib/constants.js";
 
 export default function YearEnd() {
   const { state, saveYearEnd, settleYearEnd } = useKopri();
-  const [year, setYear] = useState(String(new Date().getFullYear()));
+  const currentFY = financialYearOf(todayISO(), state.rules.financialYearStart || "04-01");
+  const [year, setYear] = useState(String(currentFY));
   const [confirmSettle, setConfirmSettle] = useState(false);
   const [confirmAllocate, setConfirmAllocate] = useState(false);
-  // Financial year end = 31 March of the following calendar year
-  const fyEnd = `${Number(year) + 1}-03-31`;
+  // The FY starts on the configured month/day (Kopri Rules) and runs a year.
+  const fyStart = state.rules.financialYearStart || "04-01";
+  const fyEnd = financialYearBounds(year, fyStart).yearEndDate;
+  const fyLabel = fyStart === "01-01" ? year : `${year}–${Number(year) + 1}`;
 
-  const result = useMemo(() => computeYearEnd(state, fyEnd), [state, fyEnd]);
+  const computed = useMemo(() => computeYearEnd(state, fyEnd), [state, fyEnd]);
   const memberById = useMemo(() => Object.fromEntries(state.members.map((m) => [m.id, m])), [state.members]);
   const existing = state.yearEnds?.find((y) => y.year === year);
 
-  const showToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 3500);
-  };
+  // Custom split: profit shares typed in by hand before saving.
+  const isCustom = state.rules.profitDistribution === PROFIT_DISTRIBUTION.CUSTOM;
+  const [customShares, setCustomShares] = useState({});
+  const editingCustom = isCustom && !existing;
+
+  // Once saved, show the allocation exactly as recorded (later ledger entries,
+  // such as the settlement payouts themselves, must not change it).
+  const result = useMemo(() => {
+    if (existing?.allocations) return { ...computed, allocations: existing.allocations };
+    if (!editingCustom) return computed;
+    const allocations = computed.allocations.map((a) => {
+      const profitShare = Number(customShares[a.memberId]) || 0;
+      return { ...a, profitShare, settlement: Math.round((a.capital + profitShare) * 100) / 100 };
+    });
+    return { ...computed, allocations };
+  }, [computed, existing, editingCustom, customShares]);
+  const liquid = useMemo(() => deriveAccounts(state.events).total, [state.events]);
+  const totalPayout = result.allocations.reduce((s, a) => s + Math.max(0, a.settlement), 0);
+  const totalShares = Math.round(result.allocations.reduce((s, a) => s + a.profitShare, 0) * 100) / 100;
+  const sharesMatch = Math.abs(totalShares - result.distributable) < 1;
 
   const distributionLabel = {
     [PROFIT_DISTRIBUTION.EQUAL]: "Equal shares",
@@ -49,12 +68,12 @@ export default function YearEnd() {
         <div>
           <div className="page-title">Year-End Settlement</div>
           <div className="page-sub">
-            Financial year {year}–{Number(year) + 1} · profit split: <b>{distributionLabel}</b> (change in Kopri Rules)
+            Financial year {fyLabel} · profit split: <b>{distributionLabel}</b> (change in Kopri Rules)
           </div>
         </div>
         <div className="row">
           <select value={year} onChange={(e) => setYear(e.target.value)} style={{ width: 110 }}>
-            {[String(new Date().getFullYear() - 1), String(new Date().getFullYear()), String(new Date().getFullYear() + 1)].map((y) => (
+            {[String(currentFY - 1), String(currentFY), String(currentFY + 1)].map((y) => (
               <option key={y} value={y}>
                 FY {y}
               </option>
@@ -75,7 +94,7 @@ export default function YearEnd() {
       </div>
 
       <div className="stat-grid">
-        <StatCard label="Gross profit" value={formatINR(result.grossProfit)} foot={`${year}–${Number(year) + 1} FY`} color="var(--green)" />
+        <StatCard label="Gross profit" value={formatINR(result.grossProfit)} foot={`FY ${fyLabel}`} color="var(--green)" />
         <StatCard label="Reserve held" value={formatINR(result.reserve)} foot={`${state.rules.reserveRate || 0}% of gross`} color="var(--amber)" />
         <StatCard label="Manager charges" value={formatINR(result.managerCharges)} foot={`${state.rules.managerChargesRate || 0}% of gross`} color="var(--violet)" />
         <StatCard label="Distributable profit" value={formatINR(result.distributable)} foot={`${result.allocations.length} members eligible`} color="var(--primary)" />
@@ -129,7 +148,7 @@ export default function YearEnd() {
             <div className="stack" style={{ gap: 8 }}>
               {result.allocations
                 .slice()
-                .sort((a, b) => b.profitShare - a.profitShare)
+                .sort((a, b) => (editingCustom ? b.capital - a.capital : b.profitShare - a.profitShare))
                 .map((a) => {
                   const m = memberById[a.memberId];
                   const pct = result.distributable > 0 ? ((a.profitShare / result.distributable) * 100).toFixed(1) : "0";
@@ -140,20 +159,34 @@ export default function YearEnd() {
                         <div>
                           <div style={{ fontWeight: 650, fontSize: 13.5 }}>{m?.name || "Unknown"}</div>
                           <div className="small faint">
-                            capital {formatINR(a.capital)} · avg {formatINR(a.averageContribution)}/yr
+                            balance {formatINR(a.capital)} · avg over year {formatINR(a.averageContribution)}
                           </div>
                         </div>
                       </div>
-                      <div className="num">
-                        <div style={{ fontWeight: 750 }}>{formatINR(a.profitShare)}</div>
-                        <div className="small faint">{pct}% of profit</div>
-                      </div>
+                      {editingCustom ? (
+                        <div className="num" style={{ width: 120 }}>
+                          <NumberInput
+                            value={customShares[a.memberId] ?? ""}
+                            min="0"
+                            placeholder="0"
+                            onChange={(e) => setCustomShares((c) => ({ ...c, [a.memberId]: e.target.value }))}
+                          />
+                        </div>
+                      ) : (
+                        <div className="num">
+                          <div style={{ fontWeight: 750 }}>{formatINR(a.profitShare)}</div>
+                          <div className="small faint">{pct}% of profit</div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               <div className="spread" style={{ padding: "10px 4px 0" }}>
                 <span className="small muted">Total distributed</span>
-                <b className="mono">{formatINR(result.allocations.reduce((s, a) => s + a.profitShare, 0))}</b>
+                <b className="mono" style={sharesMatch ? undefined : { color: "var(--red)" }}>
+                  {formatINR(totalShares)}
+                  {sharesMatch ? "" : ` of ${formatINR(result.distributable)}`}
+                </b>
               </div>
             </div>
           )}
@@ -173,7 +206,7 @@ export default function YearEnd() {
             </div>
             <div className="row">
               {!existing && (
-                <Button variant="primary" onClick={() => setConfirmAllocate(true)} disabled={result.distributable <= 0}>
+                <Button variant="primary" onClick={() => setConfirmAllocate(true)} disabled={result.distributable <= 0 || !sharesMatch}>
                   Save allocation
                 </Button>
               )}
@@ -278,8 +311,14 @@ export default function YearEnd() {
       >
         <p className="muted">
           Creates a <b>MEMBER_SETTLEMENT</b> ledger event for each member with their full payout: capital + profit share, paid out of the
-          pool's cash. Total payout: <b>{formatINR(result.allocations.reduce((s, a) => s + a.settlement, 0))}</b>.
+          pool's cash. Total payout: <b>{formatINR(totalPayout)}</b>.
         </p>
+        {totalPayout > liquid + 0.5 && (
+          <div className="alert alert-amber" style={{ marginTop: 10 }}>
+            Cash + bank is only <b>{formatINR(liquid)}</b>, so the books will show a shortfall of{" "}
+            <b>{formatINR(totalPayout - liquid)}</b>. Collect outstanding loan repayments first, or settle once the money is in.
+          </div>
+        )}
       </Modal>
     </div>
   );

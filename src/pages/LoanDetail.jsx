@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { deriveLoan, deriveMember } from "../lib/calculations.js";
-import { formatINR, formatDate, round2 } from "../lib/format.js";
+import { formatINR, formatDate, round2, todayISO } from "../lib/format.js";
 import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState, ConfirmModal, toast } from "../components/ui.jsx";
 import { LoanFormModal, EventFormModal } from "../components/modals.jsx";
 import { IconArrow, IconPlus, IconEdit, IconTrash } from "../components/Icons.jsx";
@@ -13,7 +13,8 @@ const PAYMENT_TYPES = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYME
 export default function LoanDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { state, deleteEvent } = useKopri();
+  const { state, deleteEvent, addEvent, updateLoan } = useKopri();
+  const [confirmWriteOff, setConfirmWriteOff] = useState(false);
   const [showRepay, setShowRepay] = useState(null); // quick-pay preset for the event modal
   const [editEvent, setEditEvent] = useState(null); // event being edited
   const [deleteConfirm, setDeleteConfirm] = useState(null); // event pending delete
@@ -69,7 +70,7 @@ export default function LoanDetail() {
       loanId: loan.id,
       installmentIndex: inst.index,
       amount: String(round2(Math.max(inst.principalLeft + inst.interestLeft, 0))),
-      date: new Date().toISOString().slice(0, 10),
+      date: todayISO(),
       description: `Installment ${inst.index + 1}`,
     });
   };
@@ -84,7 +85,7 @@ export default function LoanDetail() {
         memberId: loan.memberId,
         loanId: loan.id,
         amount: String(round2(Math.max(view.outstandingPrincipal, 1))),
-        date: new Date().toISOString().slice(0, 10),
+        date: todayISO(),
         description: "Repayment — principal",
       });
     }
@@ -100,6 +101,24 @@ export default function LoanDetail() {
           <Button size="sm" variant="ghost" onClick={() => setShowEdit(true)}>
             Edit terms
           </Button>
+          {!view.isWrittenOff && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const next = loan.status === "defaulted" ? "active" : "defaulted";
+                updateLoan(loan.id, { status: next });
+                toast(next === "defaulted" ? "Loan marked as defaulted." : "Loan marked as active again.");
+              }}
+            >
+              {loan.status === "defaulted" ? "Clear default" : "Mark defaulted"}
+            </Button>
+          )}
+          {view.outstandingPrincipal > 0.5 && (
+            <Button size="sm" variant="ghost" onClick={() => setConfirmWriteOff(true)}>
+              Write off
+            </Button>
+          )}
           <Button
             size="sm"
             variant="primary"
@@ -333,7 +352,32 @@ export default function LoanDetail() {
           The installment status will re-derive automatically. This cannot be undone.
         </p>
       </ConfirmModal>
-      <LoanFormModal open={showEdit} onClose={() => setShowEdit(false)} editLoan={loan} />
+      <ConfirmModal
+        open={confirmWriteOff}
+        onClose={() => setConfirmWriteOff(false)}
+        onConfirm={() => {
+          addEvent({
+            type: EVENT_TYPES.LOAN_WRITE_OFF,
+            date: todayISO(),
+            memberId: loan.memberId,
+            loanId: loan.id,
+            amount: view.outstandingPrincipal,
+            description: "Bad debt write-off (remaining principal)",
+          });
+          setConfirmWriteOff(false);
+          toast("Loan written off.");
+        }}
+        title="Write off this loan?"
+        confirmLabel="Write off"
+        danger
+      >
+        <p className="muted">
+          Records a <b>bad debt write-off</b> of <b>{formatINR(view.outstandingPrincipal, { precise: true })}</b> (the principal still
+          outstanding). The loan closes as defaulted and the amount is deducted from this year's profit. No cash moves. You can undo it by
+          deleting the write-off from the ledger.
+        </p>
+      </ConfirmModal>
+      {showEdit && <LoanFormModal open={showEdit} onClose={() => setShowEdit(false)} editLoan={loan} />}
     </div>
   );
 }

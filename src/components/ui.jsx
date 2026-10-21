@@ -60,6 +60,7 @@ export function StatusBadge({ status }) {
     defaulted: <Badge tone="red" dot>Defaulted</Badge>,
     paid: <Badge tone="green">Paid</Badge>,
     due: <Badge tone="amber">Due</Badge>,
+    written_off: <Badge tone="gray">Written off</Badge>,
   };
   return map[status] || <Badge tone="gray">{status}</Badge>;
 }
@@ -126,9 +127,9 @@ export function EmptyState({ icon = "📭", title = "Nothing here yet", sub }) {
 }
 
 // ----------------------------------------------------------------- Field
-export function Field({ label, hint, children, className = "" }) {
+export function Field({ label, hint, children, className = "", style }) {
   return (
-    <div className={`form-group ${className}`}>
+    <div className={`form-group ${className}`} style={style}>
       {label && <label>{label}</label>}
       {children}
       {hint && <div className="field-hint">{hint}</div>}

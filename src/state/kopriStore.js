@@ -136,8 +136,27 @@ function bookReducer(book, action) {
       return { ...book, loans: [...book.loans, loan] };
     }
 
-    case "UPDATE_LOAN":
-      return { ...book, loans: book.loans.map((l) => (l.id === action.id ? { ...l, ...action.patch } : l)) };
+    case "UPDATE_LOAN": {
+      const old = book.loans.find((l) => l.id === action.id);
+      if (!old) return book;
+      const updated = { ...old, ...action.patch };
+      // Keep the loan's disbursement entry in step with its amount, date and
+      // borrower. Older entries were saved without a loanId, so fall back to
+      // matching the original borrower, date and amount.
+      const isDisbursement = (e) =>
+        e.type === "LOAN_DISBURSEMENT" &&
+        (e.loanId === old.id ||
+          (!e.loanId && e.memberId === old.memberId && e.date === old.startDate && Number(e.amount) === Number(old.principal)));
+      const target = book.events.find(isDisbursement);
+      const events = target
+        ? book.events.map((e) =>
+            e.id === target.id
+              ? { ...e, loanId: old.id, memberId: updated.memberId, date: updated.startDate, amount: Number(updated.principal) }
+              : e
+          )
+        : book.events;
+      return { ...book, loans: book.loans.map((l) => (l.id === action.id ? updated : l)), events };
+    }
 
     case "ADD_EVENT": {
       const ev = {
@@ -172,7 +191,7 @@ function bookReducer(book, action) {
       const y = action.yearEnd;
       const rest = (book.yearEnds || []).filter((x) => x.year !== y.year);
       const allocationEvents = y.allocations
-        .filter((a) => a.profitShare > 0.5)
+        .filter((a) => Math.abs(a.profitShare) > 0.5) // a negative share books the member's part of a loss
         .map((a) => ({
           id: uid("ev"),
           date: y.yearEndDate,

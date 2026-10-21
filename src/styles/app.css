@@ -1251,3 +1251,17 @@ table.data tbody tr:last-child td {
     overflow-y: auto;
   }
 }
+
+/* Custom principal schedule (loan form) */
+.custom-schedule {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.custom-schedule-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

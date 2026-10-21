@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { toast } from "../components/ui.jsx";
-import { sortLedger, deriveAccounts } from "../lib/calculations.js";
+import { sortLedger, deriveAccounts, cashDelta } from "../lib/calculations.js";
 import { formatINR, formatDate } from "../lib/format.js";
 import { Card, Badge, Button, EmptyState } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
@@ -33,8 +33,6 @@ const EVENT_LABELS = {
   MEMBER_SETTLEMENT: "Settlement",
 };
 
-const IN_TYPES = ["MEMBER_CONTRIBUTION", "PRINCIPAL_PAYMENT", "INTEREST_PAYMENT", "LATE_FEE", "OTHER_INCOME", "PROFIT_ALLOCATION"];
-const OUT_TYPES = ["MEMBER_WITHDRAWAL", "LOAN_DISBURSEMENT", "EXPENSE", "MEMBER_SETTLEMENT", "LOAN_WRITE_OFF"];
 
 export default function Ledger() {
   const { state } = useKopri();
@@ -50,10 +48,24 @@ export default function Ledger() {
   const loanById = useMemo(() => Object.fromEntries(state.loans.map((l) => [l.id, l])), [state.loans]);
   const accounts = useMemo(() => deriveAccounts(state.events), [state.events]);
 
+  // Running cash + bank balance over the whole ledger (oldest → newest), so the
+  // balance column stays correct when the list is filtered.
+  const withBalance = useMemo(() => {
+    let running = 0;
+    return sortLedger(state.events)
+      .reverse()
+      .map((e) => {
+        const delta = cashDelta(e);
+        running += delta;
+        return { ...e, delta, running: Math.round(running * 100) / 100 };
+      })
+      .reverse();
+  }, [state.events]);
+
   const entries = useMemo(() => {
-    let list = sortLedger(state.events);
-    if (filter === "in") list = list.filter((e) => IN_TYPES.includes(e.type) || (e.type === "ADJUSTMENT" && e.sign !== "negative"));
-    if (filter === "out") list = list.filter((e) => OUT_TYPES.includes(e.type) || (e.type === "ADJUSTMENT" && e.sign === "negative"));
+    let list = withBalance;
+    if (filter === "in") list = list.filter((e) => e.delta > 0);
+    if (filter === "out") list = list.filter((e) => e.delta < 0);
     if (filter === "transfer") list = list.filter((e) => e.type === "TRANSFER");
     if (typeFilter !== "all") list = list.filter((e) => e.type === typeFilter);
     if (query) {
@@ -66,35 +78,17 @@ export default function Ledger() {
       );
     }
     return list;
-  }, [state.events, filter, typeFilter, query, memberById, loanById]);
-
-  // running pool balance as we walk from oldest to newest
-  const withRunning = useMemo(() => {
-    let running = 0;
-    return [...entries].reverse().map((e) => {
-      let delta = 0;
-      const amt = Number(e.amount) || 0;
-      if (e.type === "TRANSFER") {
-        delta = 0;
-      } else if (e.type === "ADJUSTMENT") {
-        delta = e.sign === "negative" ? -amt : amt;
-      } else if (IN_TYPES.includes(e.type)) {
-        delta = amt;
-      } else if (OUT_TYPES.includes(e.type)) {
-        delta = -amt;
-      }
-      running += delta;
-      return { ...e, delta, running: Math.round(running * 100) / 100 };
-    });
-  }, [entries]);
+  }, [withBalance, filter, typeFilter, query, memberById, loanById]);
+  const withRunning = entries;
 
   const typeOptions = Object.entries(EVENT_LABELS);
 
   const tone = (e) => {
     if (e.type === "TRANSFER") return "gray";
     if (e.type === "ADJUSTMENT") return "violet";
-    if (IN_TYPES.includes(e.type)) return "green";
-    if (OUT_TYPES.includes(e.type)) return "red";
+    const delta = cashDelta(e);
+    if (delta > 0) return "green";
+    if (delta < 0) return "red";
     return "gray";
   };
 

@@ -10,14 +10,14 @@ import {
   ACCOUNTS,
   EVENT_TYPES,
 } from "../lib/constants.js";
-import { buildSchedule, computeLateCharges } from "../lib/calculations.js";
-import { todayISO, formatINR, formatDate, formatNumber, round2 } from "../lib/format.js";
+import { buildSchedule, computeLateCharges, splitPayAmount } from "../lib/calculations.js";
+import { todayISO, formatINR, formatDate, formatNumber, round2, uid } from "../lib/format.js";
 
 const rupee = (n) => formatINR(n, { precise: true });
 
 function methodLabel(method) {
   if (method === INTEREST_METHODS.FLAT) return "Flat (on original loan principal)";
-  if (method === INTEREST_METHODS.DAILY_OUTSTANDING) return "Daily outstanding (month × days/30)";
+  if (method === INTEREST_METHODS.DAILY_OUTSTANDING) return "Daily outstanding (monthly rate × days in period ÷ 30)";
   return "Reducing balance (on outstanding at period start)";
 }
 
@@ -69,7 +69,11 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
           <CalcRow label="Outstanding at start of this period" value={rupee(installment.outstandingBefore)} />
           <CalcRow
             label="This period’s interest"
-            formula={`${rupee(installment.outstandingBefore)} × ${installment.monthlyRatePct}% × ${installment.daysInPeriod} days ÷ 30`}
+            formula={
+              (installment.interestMethod || loan.interestMethod) === INTEREST_METHODS.DAILY_OUTSTANDING
+                ? `${rupee(installment.outstandingBefore)} × ${installment.monthlyRatePct}% × ${installment.daysInPeriod} days ÷ 30`
+                : `${rupee(installment.outstandingBefore)} × ${installment.monthlyRatePct}% per month`
+            }
             value={rupee(periodInterest)}
           />
         </>
@@ -186,8 +190,9 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
 
       {payMode === "pi" && split && (
         <div className="small muted" style={{ marginTop: 8 }}>
-          The amount field splits as <b>principal {rupee(split.principal)}</b> + <b>scheduled interest {rupee(split.interest)}</b>
-          {split.extra > 0 ? <> · extra {rupee(split.extra)} booked as principal prepayment</> : null}
+          The amount field splits as <b>scheduled interest {rupee(split.interest)}</b> first, then{" "}
+          <b>principal {rupee(split.principal)}</b>
+          {split.extra > 0 ? <> (includes {rupee(split.extra)} extra, booked as a principal prepayment)</> : null}
           {lateTotal > 0.005 ? ". Late charges are not mixed into that split." : null}
         </div>
       )}
@@ -284,7 +289,24 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
   );
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const valid = form.memberId && Number(form.principal) > 0 && Number(form.tenureMonths) > 0;
+
+  // Custom repayment: one principal amount per month, which must add up to
+  // the loan principal. Starts as an equal split whenever the size changes.
+  const tenure = Math.max(0, Math.min(Math.floor(Number(form.tenureMonths) || 0), 600));
+  const isCustom = form.principalRepayment === PRINCIPAL_REPAYMENT.CUSTOM;
+  const [customRows, setCustomRows] = useState(() =>
+    Array.isArray(editLoan?.customPrincipalSchedule) ? editLoan.customPrincipalSchedule.map(String) : []
+  );
+  useEffect(() => {
+    if (!isCustom || tenure < 1 || customRows.length === tenure) return;
+    const p = Number(form.principal) || 0;
+    const base = Math.floor(p / tenure);
+    setCustomRows(Array.from({ length: tenure }, (_, i) => String(i === tenure - 1 ? round2(p - base * (tenure - 1)) : base)));
+  }, [isCustom, tenure]); // eslint-disable-line react-hooks/exhaustive-deps
+  const customTotal = round2(customRows.reduce((a, v) => a + (Number(v) || 0), 0));
+  const customOk = !isCustom || (customRows.length === tenure && Math.abs(customTotal - (Number(form.principal) || 0)) < 1);
+
+  const valid = form.memberId && Number(form.principal) > 0 && Number(form.tenureMonths) > 0 && customOk;
 
   const submit = () => {
     if (!valid) return;
@@ -304,15 +326,18 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
       security: form.security,
       notes: form.notes,
       guarantorIds: Array.isArray(form.guarantorIds) ? form.guarantorIds : [],
+      customPrincipalSchedule: isCustom ? customRows.map((v) => Number(v) || 0) : null,
     };
     if (editLoan) {
       updateLoan(editLoan.id, payload);
     } else {
-      addLoan(payload);
+      const loanId = uid("l");
+      addLoan({ ...payload, id: loanId });
       // create the disbursement event in the ledger
       addEvent({
         type: EVENT_TYPES.LOAN_DISBURSEMENT,
         memberId: form.memberId,
+        loanId,
         amount: Number(form.principal),
         account: "cash",
         date: form.startDate,
@@ -387,6 +412,32 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
           <NumberInput value={form.tenureMonths} onChange={set("tenureMonths")} min="1" />
         </Field>
 
+        {isCustom && tenure > 0 && (
+          <Field
+            label="Principal due each month (₹)"
+            className="grow"
+            style={{ gridColumn: "1 / -1" }}
+            hint={
+              customOk
+                ? `Adds up to ${formatINR(customTotal)}`
+                : `Adds up to ${formatINR(customTotal)}, needs to equal the principal ${formatINR(Number(form.principal) || 0)}`
+            }
+          >
+            <div className="custom-schedule">
+              {customRows.map((v, i) => (
+                <label key={i} className="custom-schedule-cell">
+                  <span className="small muted">Month {i + 1}</span>
+                  <NumberInput
+                    value={v}
+                    min="0"
+                    onChange={(e) => setCustomRows((rows) => rows.map((r, j) => (j === i ? e.target.value : r)))}
+                  />
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
+
         <Field label="Start date">
           <input type="date" value={form.startDate} onChange={set("startDate")} />
         </Field>
@@ -443,17 +494,6 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
 }
 
 // ------------------------------------------------------------ EventForm
-
-// Split a payment amount into principal + interest legs given each side's
-// outstanding balance. Overflow beyond both balances stays with the principal
-// leg (books as an extra principal prepayment).
-function splitPayAmount(amount, principalLeft, interestLeft) {
-  const amt = Math.max(Number(amount) || 0, 0);
-  const principal = Math.min(amt, Math.max(principalLeft, 0));
-  const interest = Math.min(Math.max(amt - principal, 0), Math.max(interestLeft, 0));
-  const extra = Math.max(amt - principal - interest, 0);
-  return { principal: round2(principal), interest: round2(interest), extra: round2(extra) };
-}
 
 export function EventFormModal({ open, onClose, preset = {}, editEvent = null, onDelete = null }) {
   const { state, addEvent, updateEvent } = useKopri();
@@ -544,7 +584,7 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
   );
 
   const needsMember = [EVENT_TYPES.CONTRIBUTION, EVENT_TYPES.WITHDRAWAL].includes(form.type);
-  const isLoanPayment = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE].includes(form.type);
+  const isLoanPayment = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE, EVENT_TYPES.LOAN_WRITE_OFF].includes(form.type);
   const isTransfer = form.type === EVENT_TYPES.TRANSFER;
   const isAdjustment = form.type === EVENT_TYPES.ADJUSTMENT;
 

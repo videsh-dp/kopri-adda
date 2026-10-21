@@ -57,7 +57,7 @@ export default function Members() {
         </div>
         <div className="grow" />
         <span className="small faint">
-          Capital shown = contributions − withdrawals (derived from ledger, never stored)
+          Capital shown = contributions − withdrawals − year-end payouts beyond profit (derived from ledger, never stored)
         </span>
       </div>
 
