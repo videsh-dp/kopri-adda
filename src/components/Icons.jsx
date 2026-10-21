@@ -139,6 +139,8 @@ export const IconMoney = (p) => (
   </svg>
 );
 
+export const IconCash = IconMoney;
+
 export const IconWarning = (p) => (
   <svg {...base} {...p}>
     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -172,5 +174,13 @@ export const IconRefresh = (p) => (
   <svg {...base} {...p}>
     <path d="M23 4v6h-6" />
     <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+  </svg>
+);
+
+export const IconMenu = (p) => (
+  <svg {...base} {...p}>
+    <path d="M4 6h16" />
+    <path d="M4 12h16" />
+    <path d="M4 18h16" />
   </svg>
 );

@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
-import { sortLedger, deriveAccounts } from "../lib/calculations.js";
+import { toast } from "../components/ui.jsx";
+import { sortLedger, deriveAccounts, cashDelta } from "../lib/calculations.js";
 import { formatINR, formatDate } from "../lib/format.js";
 import { Card, Badge, Button, EmptyState } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
-import { IconPlus, IconSearch } from "../components/Icons.jsx";
+import { IconPlus, IconSearch, IconEdit, IconTrash } from "../components/Icons.jsx";
+import { ConfirmModal } from "../components/ui.jsx";
 import { EVENT_TYPES } from "../lib/constants.js";
 
 const FILTERS = [
@@ -31,24 +33,39 @@ const EVENT_LABELS = {
   MEMBER_SETTLEMENT: "Settlement",
 };
 
-const IN_TYPES = ["MEMBER_CONTRIBUTION", "PRINCIPAL_PAYMENT", "INTEREST_PAYMENT", "LATE_FEE", "OTHER_INCOME", "PROFIT_ALLOCATION"];
-const OUT_TYPES = ["MEMBER_WITHDRAWAL", "LOAN_DISBURSEMENT", "EXPENSE", "MEMBER_SETTLEMENT", "LOAN_WRITE_OFF"];
 
 export default function Ledger() {
   const { state } = useKopri();
   const [filter, setFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const { deleteEvent } = useKopri();
   const [showAdd, setShowAdd] = useState(false);
+  const [editEvent, setEditEvent] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // event to delete
 
   const memberById = useMemo(() => Object.fromEntries(state.members.map((m) => [m.id, m])), [state.members]);
   const loanById = useMemo(() => Object.fromEntries(state.loans.map((l) => [l.id, l])), [state.loans]);
   const accounts = useMemo(() => deriveAccounts(state.events), [state.events]);
 
+  // Running cash + bank balance over the whole ledger (oldest → newest), so the
+  // balance column stays correct when the list is filtered.
+  const withBalance = useMemo(() => {
+    let running = 0;
+    return sortLedger(state.events)
+      .reverse()
+      .map((e) => {
+        const delta = cashDelta(e);
+        running += delta;
+        return { ...e, delta, running: Math.round(running * 100) / 100 };
+      })
+      .reverse();
+  }, [state.events]);
+
   const entries = useMemo(() => {
-    let list = sortLedger(state.events);
-    if (filter === "in") list = list.filter((e) => IN_TYPES.includes(e.type) || (e.type === "ADJUSTMENT" && e.sign !== "negative"));
-    if (filter === "out") list = list.filter((e) => OUT_TYPES.includes(e.type) || (e.type === "ADJUSTMENT" && e.sign === "negative"));
+    let list = withBalance;
+    if (filter === "in") list = list.filter((e) => e.delta > 0);
+    if (filter === "out") list = list.filter((e) => e.delta < 0);
     if (filter === "transfer") list = list.filter((e) => e.type === "TRANSFER");
     if (typeFilter !== "all") list = list.filter((e) => e.type === typeFilter);
     if (query) {
@@ -61,35 +78,17 @@ export default function Ledger() {
       );
     }
     return list;
-  }, [state.events, filter, typeFilter, query, memberById, loanById]);
-
-  // running pool balance as we walk from oldest to newest
-  const withRunning = useMemo(() => {
-    let running = 0;
-    return [...entries].reverse().map((e) => {
-      let delta = 0;
-      const amt = Number(e.amount) || 0;
-      if (e.type === "TRANSFER") {
-        delta = 0;
-      } else if (e.type === "ADJUSTMENT") {
-        delta = e.sign === "negative" ? -amt : amt;
-      } else if (IN_TYPES.includes(e.type)) {
-        delta = amt;
-      } else if (OUT_TYPES.includes(e.type)) {
-        delta = -amt;
-      }
-      running += delta;
-      return { ...e, delta, running: Math.round(running * 100) / 100 };
-    });
-  }, [entries]);
+  }, [withBalance, filter, typeFilter, query, memberById, loanById]);
+  const withRunning = entries;
 
   const typeOptions = Object.entries(EVENT_LABELS);
 
   const tone = (e) => {
     if (e.type === "TRANSFER") return "gray";
     if (e.type === "ADJUSTMENT") return "violet";
-    if (IN_TYPES.includes(e.type)) return "green";
-    if (OUT_TYPES.includes(e.type)) return "red";
+    const delta = cashDelta(e);
+    if (delta > 0) return "green";
+    if (delta < 0) return "red";
     return "gray";
   };
 
@@ -141,7 +140,7 @@ export default function Ledger() {
         {withRunning.length === 0 ? (
           <EmptyState icon="🧾" title="No transactions match" sub="Adjust the filters or record a new transaction." />
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap sticky-header">
             <table className="data">
               <thead>
                 <tr>
@@ -152,6 +151,7 @@ export default function Ledger() {
                   <th>Description</th>
                   <th className="num">Amount</th>
                   <th className="num">Running pool</th>
+                  <th className="num" style={{ width: 64, textAlign: "center" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -188,6 +188,24 @@ export default function Ledger() {
                       <td className="num mono" style={{ fontWeight: 650 }}>
                         {formatINR(e.running)}
                       </td>
+                      <td className="num" style={{ width: 64 }}>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => setEditEvent(e)}
+                          title="Edit transaction"
+                          style={{ padding: "4px 8px", borderRadius: 8 }}
+                        >
+                          <IconEdit width={13} height={13} />
+                        </button>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => setDeleteConfirm(e)}
+                          title="Delete transaction"
+                          style={{ padding: "4px 8px", borderRadius: 8, color: "var(--red)" }}
+                        >
+                          <IconTrash width={13} height={13} />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -202,6 +220,39 @@ export default function Ledger() {
       </div>
 
       <EventFormModal open={showAdd} onClose={() => setShowAdd(false)} />
+      <EventFormModal
+        open={!!editEvent}
+        onClose={() => setEditEvent(null)}
+        editEvent={editEvent}
+        onDelete={(ev) => {
+          deleteEvent(ev.id);
+          toast("Transaction deleted.");
+          setEditEvent(null);
+        }}
+      />
+      <ConfirmModal
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={() => {
+          if (deleteConfirm) {
+            deleteEvent(deleteConfirm.id);
+            toast(`Transaction deleted.`);
+          }
+          setDeleteConfirm(null);
+        }}
+        title={`Delete transaction?`}
+        confirmLabel="Delete"
+        danger
+      >
+        <p className="muted">
+          This removes <b>{deleteConfirm?.type && EVENT_LABELS[deleteConfirm.type] || ""}</b> event「{deleteConfirm?.id?.toUpperCase()}」
+          — {formatINR(deleteConfirm?.amount || 0)} on {formatDate(deleteConfirm?.date)}.
+          {deleteConfirm?.memberId ? ` Member: ${memberById[deleteConfirm.memberId]?.name || ""}.` : ""}
+          {deleteConfirm?.loanId ? ` Loan: ${loanById[deleteConfirm.loanId]?.id.toUpperCase() || ""}.` : ""}
+          <br /><br />
+          This cannot be undone. Balances will re-derive automatically.
+        </p>
+      </ConfirmModal>
     </div>
   );
 }

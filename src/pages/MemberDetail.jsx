@@ -2,17 +2,19 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { deriveMember, deriveLoan, sortLedger } from "../lib/calculations.js";
-import { formatINR, formatDate } from "../lib/format.js";
+import { formatINR, formatDate, round2 } from "../lib/format.js";
 import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
-import { IconPlus, IconArrow } from "../components/Icons.jsx";
+import { IconPlus, IconArrow, IconCash } from "../components/Icons.jsx";
 import { EVENT_TYPES } from "../lib/constants.js";
+import { toast } from "../components/ui.jsx";
 
 export default function MemberDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { state } = useKopri();
   const [showEvent, setShowEvent] = useState(null); // preset for the event modal
+  const [quickRecord, setQuickRecord] = useState(null); // preset with loanId + memberId pre-filled
 
   const member = state.members.find((m) => m.id === id);
   const view = useMemo(() => (member ? deriveMember(member, state.events, state.loans) : null), [member, state.events, state.loans]);
@@ -57,11 +59,14 @@ export default function MemberDetail() {
           <IconArrow style={{ transform: "rotate(180deg)" }} /> Members
         </Link>
         <div className="row">
-          <Button size="sm" onClick={() => setShowEvent({ type: EVENT_TYPES.CONTRIBUTION, memberId: id })}>
+          <Button size="sm" onClick={() => { setShowEvent({ type: EVENT_TYPES.CONTRIBUTION, memberId: id }); setQuickRecord(null); }}>
             <IconPlus /> Contribution
           </Button>
-          <Button size="sm" variant="danger" onClick={() => setShowEvent({ type: EVENT_TYPES.WITHDRAWAL, memberId: id })}>
+          <Button size="sm" variant="danger" onClick={() => { setShowEvent({ type: EVENT_TYPES.WITHDRAWAL, memberId: id }); setQuickRecord(null); }}>
             Withdrawal
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => { setQuickRecord({ memberId: id }); setShowEvent({}); }}>
+            <IconPlus /> Record transaction
           </Button>
         </div>
       </div>
@@ -115,7 +120,7 @@ export default function MemberDetail() {
         {loans.length === 0 ? (
           <EmptyState icon="🏦" title="No loans" sub="This member hasn't borrowed yet." />
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap sticky-header">
             <table className="data">
               <thead>
                 <tr>
@@ -150,10 +155,40 @@ export default function MemberDetail() {
                         <span className="small muted">{Math.round(l.paidRatio * 100)}%</span>
                       </div>
                     </td>
-                    <td className="num">
-                      <Link to={`/loans/${l.id}`} className="btn btn-sm btn-ghost">
-                        Details →
-                      </Link>
+                                    <td className="num">
+                      <div className="row" style={{ justifyContent: "flex-end", gap: 4 }}>
+                        <Link to={`/loans/${l.id}`} className="btn btn-sm btn-ghost">
+                          Details →
+                        </Link>
+                        {l.status === "overdue" || l.status === "due" ? (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const amt = round2(Math.max(l.principalLeft + l.interestLeft, 0));
+                              const nextInstallment = l.installments.find(
+                                (i) => i.status === "due" || i.status === "overdue"
+                              );
+                              setShowEvent({
+                                memberId: id,
+                                loanId: l.id,
+                                amount: String(amt),
+                                date: new Date().toISOString().slice(0, 10),
+                                description: `Pay ${nextInstallment ? `installment #${nextInstallment.index + 1}` : "loan repayment"}`,
+                                quickPay: true,
+                                installmentIndex: nextInstallment ? nextInstallment.index : undefined,
+                              });
+                              setQuickRecord({ memberId: id, loanId: l.id });
+                              toast(`Recording repayment for ${l.id.toUpperCase()}.`);
+                            }}
+                            disabled={l.outstandingPrincipal <= 0.5}
+                          >
+                            <IconCash width={13} height={13} />
+                            Pay
+                          </Button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -167,7 +202,7 @@ export default function MemberDetail() {
         {ledger.length === 0 ? (
           <EmptyState icon="🧾" title="No activity yet" />
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap sticky-header">
             <table className="data">
               <thead>
                 <tr>
@@ -218,7 +253,11 @@ export default function MemberDetail() {
         )}
       </Card>
 
-      <EventFormModal open={!!showEvent} onClose={() => setShowEvent(null)} preset={showEvent || {}} />
+      <EventFormModal
+        open={!!showEvent}
+        onClose={() => { setShowEvent(null); setQuickRecord(null); }}
+        preset={showEvent || {}}
+      />
     </div>
   );
 }

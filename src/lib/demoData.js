@@ -5,7 +5,7 @@
 
 import { DEFAULT_RULES } from "./constants.js";
 import { todayISO, uid, round2 } from "./format.js";
-import { buildSchedule } from "./calculations.js";
+import { buildSchedule, computeYearEnd, financialYearBounds, financialYearOf } from "./calculations.js";
 
 const today = todayISO();
 
@@ -222,40 +222,18 @@ export function buildDemoState(name = "Sunrise Kopri") {
   transfer("cash", "bank", 100000, dateNMonthsAgo(2, 1), "Bank deposit");
   transfer("bank", "cash", 50000, dateNMonthsAgo(3, 1), "Withdrew for daily needs");
 
-  // --- Last year's settlement (for yearEnds history) ---
-  const lastYearEnd = `${new Date().getFullYear() - 1}-04-01`;
-  events.push({ id: uid("ev"), date: lastYearEnd, type: "PROFIT_ALLOCATION", memberId: "m1", amount: 24000, account: "cash", reference: "", description: "FY profit allocation", createdAt: `${lastYearEnd}T10:00:00.000Z` });
-  events.push({ id: uid("ev"), date: lastYearEnd, type: "PROFIT_ALLOCATION", memberId: "m2", amount: 24000, account: "cash", reference: "", description: "FY profit allocation", createdAt: `${lastYearEnd}T10:00:00.000Z` });
-  events.push({ id: uid("ev"), date: lastYearEnd, type: "PROFIT_ALLOCATION", memberId: "m3", amount: 24000, account: "cash", reference: "", description: "FY profit allocation", createdAt: `${lastYearEnd}T10:00:00.000Z` });
+  // --- Last financial year: computed and allocated, not yet settled ---
+  const yearEnds = [];
+  const lastFY = financialYearOf(today, rules.financialYearStart) - 1;
+  const { yearEndDate: lastYearEnd } = financialYearBounds(lastFY, rules.financialYearStart);
+  const lastYear = computeYearEnd({ events, members, loans, rules, yearEnds: [] }, lastYearEnd);
+  if (lastYear.distributable > 0) {
+    for (const a of lastYear.allocations) {
+      if (Math.abs(a.profitShare) <= 0.5) continue;
+      events.push({ id: uid("ev"), date: lastYearEnd, type: "PROFIT_ALLOCATION", memberId: a.memberId, amount: a.profitShare, account: "cash", reference: "", description: `FY ${lastYear.year} profit allocation`, createdAt: `${lastYearEnd}T10:00:00.000Z` });
+    }
+    yearEnds.push({ ...lastYear, settled: false });
+  }
 
-  return {
-    rules,
-    members,
-    loans,
-    events,
-    yearEnds: [
-      {
-        year: String(new Date().getFullYear() - 1),
-        yearStart: `${new Date().getFullYear() - 1}-04-01`,
-        yearEndDate: lastYearEnd,
-        interestCollected: 128400,
-        penaltiesCollected: 1200,
-        otherIncome: 2500,
-        expenses: 8400,
-        badDebt: 0,
-        grossProfit: 123700,
-        reserve: 6185,
-        managerCharges: 6185,
-        distributable: 111330,
-        allocations: [
-          { memberId: "m1", capital: 118000, profitShare: 24000, settlement: 142000 },
-          { memberId: "m2", capital: 118000, profitShare: 24000, settlement: 142000 },
-          { memberId: "m3", capital: 118000, profitShare: 24000, settlement: 142000 },
-          { memberId: "m4", capital: 65000, profitShare: 13222, settlement: 78222 },
-          { memberId: "m5", capital: 35000, profitShare: 7122, settlement: 42122 },
-        ],
-        settled: false,
-      },
-    ],
-  };
+  return { rules, members, loans, events, yearEnds };
 }

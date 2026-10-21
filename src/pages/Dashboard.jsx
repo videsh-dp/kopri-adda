@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, AreaChart, Area } from "recharts";
 import { useKopri } from "../state/KopriContext.jsx";
-import { derivePortfolio, monthlyCashFlow, sortLedger } from "../lib/calculations.js";
+import { derivePortfolio, monthlyCashFlow, sortLedger, cashDelta } from "../lib/calculations.js";
 import { formatINR, formatNumber, formatDate, monthLabel } from "../lib/format.js";
 import { Card, StatCard, Badge, EmptyState, Avatar } from "../components/ui.jsx";
 import { IconMoney, IconWarning, IconUsers, IconLoan, IconLedger, IconArrow } from "../components/Icons.jsx";
@@ -202,8 +202,8 @@ export default function Dashboard() {
               <tbody>
                 {recent.map((e) => {
                   const member = e.memberId ? memberById[e.memberId] : null;
-                  const isIn = ["MEMBER_CONTRIBUTION", "PRINCIPAL_PAYMENT", "INTEREST_PAYMENT", "LATE_FEE", "OTHER_INCOME", "PROFIT_ALLOCATION", "ADJUSTMENT"].includes(e.type);
-                  const isOut = ["MEMBER_WITHDRAWAL", "LOAN_DISBURSEMENT", "EXPENSE", "MEMBER_SETTLEMENT", "LOAN_WRITE_OFF"].includes(e.type);
+                  const isIn = cashDelta(e) > 0;
+                  const isOut = cashDelta(e) < 0;
                   return (
                     <tr key={e.id}>
                       <td className="muted">{formatDate(e.date)}</td>

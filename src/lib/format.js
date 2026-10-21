@@ -24,11 +24,9 @@ const numPrecise = new Intl.NumberFormat("en-IN", {
 export function formatINR(value, { precise = false, signed = false } = {}) {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   const formatter = precise ? inrPrecise : inr;
-  let out = formatter.format(Math.abs(value));
-  if (signed) {
-    out = value < 0 ? `-${out}` : `+${out}`;
-  }
-  return out;
+  const out = formatter.format(Math.abs(value));
+  if (value < 0 && Math.abs(value) >= (precise ? 0.005 : 0.5)) return `−${out}`;
+  return signed ? `+${out}` : out;
 }
 
 export function formatNumber(value, { precise = false } = {}) {

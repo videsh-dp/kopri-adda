@@ -2,18 +2,22 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { deriveLoan, deriveMember } from "../lib/calculations.js";
-import { formatINR, formatDate } from "../lib/format.js";
-import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState } from "../components/ui.jsx";
-import { LoanFormModal } from "../components/modals.jsx";
-import { EventFormModal } from "../components/modals.jsx";
-import { IconArrow, IconPlus } from "../components/Icons.jsx";
+import { formatINR, formatDate, round2, todayISO } from "../lib/format.js";
+import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState, ConfirmModal, toast } from "../components/ui.jsx";
+import { LoanFormModal, EventFormModal } from "../components/modals.jsx";
+import { IconArrow, IconPlus, IconEdit, IconTrash } from "../components/Icons.jsx";
 import { EVENT_TYPES } from "../lib/constants.js";
+
+const PAYMENT_TYPES = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE];
 
 export default function LoanDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { state } = useKopri();
-  const [showRepay, setShowRepay] = useState(null); // installment object or preset
+  const { state, deleteEvent, addEvent, updateLoan } = useKopri();
+  const [confirmWriteOff, setConfirmWriteOff] = useState(false);
+  const [showRepay, setShowRepay] = useState(null); // quick-pay preset for the event modal
+  const [editEvent, setEditEvent] = useState(null); // event being edited
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // event pending delete
   const [showEdit, setShowEdit] = useState(false);
 
   const loan = state.loans.find((l) => l.id === id);
@@ -21,6 +25,20 @@ export default function LoanDetail() {
   const borrower = loan ? state.members.find((m) => m.id === loan.memberId) : null;
   const borrowerView = borrower ? deriveMember(borrower, state.events, state.loans) : null;
   const guarantors = loan ? loan.guarantorIds?.map((g) => state.members.find((m) => m.id === g)).filter(Boolean) : [];
+
+  // Payment events tagged to each installment, for per-installment edit/delete.
+  const eventsByInstallment = useMemo(() => {
+    const map = new Map(); // installmentIndex -> [events]
+    if (!loan) return map;
+    for (const e of state.events) {
+      if (e.loanId !== loan.id || !PAYMENT_TYPES.includes(e.type)) continue;
+      if (e.installmentIndex === undefined || e.installmentIndex === null) continue;
+      const arr = map.get(e.installmentIndex) || [];
+      arr.push(e);
+      map.set(e.installmentIndex, arr);
+    }
+    return map;
+  }, [loan, state.events]);
 
   if (!loan || !view) {
     return (
@@ -44,6 +62,35 @@ export default function LoanDetail() {
   const nextDue = view.installments.find((i) => i.status === "due" || i.status === "overdue");
   const nextDueAmount = nextDue ? Math.max(nextDue.principalLeft + nextDue.interestLeft, 0) : 0;
 
+  // Open quick-pay for one installment (principal + interest by default).
+  const openQuickPay = (inst) => {
+    setShowRepay({
+      quickPay: true,
+      memberId: loan.memberId,
+      loanId: loan.id,
+      installmentIndex: inst.index,
+      amount: String(round2(Math.max(inst.principalLeft + inst.interestLeft, 0))),
+      date: todayISO(),
+      description: `Installment ${inst.index + 1}`,
+    });
+  };
+
+  // Open quick-pay for the next due installment (header button).
+  const openNextDuePay = () => {
+    if (nextDue) {
+      openQuickPay(nextDue);
+    } else {
+      setShowRepay({
+        type: EVENT_TYPES.PRINCIPAL_PAYMENT,
+        memberId: loan.memberId,
+        loanId: loan.id,
+        amount: String(round2(Math.max(view.outstandingPrincipal, 1))),
+        date: todayISO(),
+        description: "Repayment — principal",
+      });
+    }
+  };
+
   return (
     <div className="stack">
       <div className="spread">
@@ -54,20 +101,29 @@ export default function LoanDetail() {
           <Button size="sm" variant="ghost" onClick={() => setShowEdit(true)}>
             Edit terms
           </Button>
+          {!view.isWrittenOff && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const next = loan.status === "defaulted" ? "active" : "defaulted";
+                updateLoan(loan.id, { status: next });
+                toast(next === "defaulted" ? "Loan marked as defaulted." : "Loan marked as active again.");
+              }}
+            >
+              {loan.status === "defaulted" ? "Clear default" : "Mark defaulted"}
+            </Button>
+          )}
+          {view.outstandingPrincipal > 0.5 && (
+            <Button size="sm" variant="ghost" onClick={() => setConfirmWriteOff(true)}>
+              Write off
+            </Button>
+          )}
           <Button
             size="sm"
             variant="primary"
             disabled={view.outstandingPrincipal <= 0.5}
-            onClick={() =>
-              setShowRepay({
-                type: EVENT_TYPES.PRINCIPAL_PAYMENT,
-                memberId: loan.memberId,
-                loanId: loan.id,
-                amount: String(Math.max(nextDueAmount, 1)),
-                date: new Date().toISOString().slice(0, 10),
-                description: "Repayment — principal",
-              })
-            }
+            onClick={openNextDuePay}
           >
             <IconPlus /> Record repayment
           </Button>
@@ -148,54 +204,67 @@ export default function LoanDetail() {
                   <th className="num">Total</th>
                   <th className="num">Paid</th>
                   <th>Status</th>
-                  <th />
+                  <th className="num" style={{ textAlign: "center" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {view.installments.map((i) => (
-                  <tr key={i.index} className={i.status === "overdue" ? "row-link" : ""}>
-                    <td className="muted mono">{i.index + 1}</td>
-                    <td className="muted">
-                      {formatDate(i.dueDate)}
-                      {i.status === "overdue" && (
-                        <div className="small" style={{ color: "var(--red)" }}>
-                          {i.overdueDays}d late
+                {view.installments.map((i) => {
+                  const recorded = eventsByInstallment.get(i.index) || [];
+                  return (
+                    <tr key={i.index}>
+                      <td className="muted mono">{i.index + 1}</td>
+                      <td className="muted">
+                        {formatDate(i.dueDate)}
+                        {i.status === "overdue" && (
+                          <div className="small" style={{ color: "var(--red)" }}>
+                            {i.overdueDays}d late
+                          </div>
+                        )}
+                      </td>
+                      <td className="num">{formatINR(i.principalDue)}</td>
+                      <td className="num">{formatINR(i.interestDue)}</td>
+                      <td className="num" style={{ fontWeight: 650 }}>{formatINR(i.totalDue)}</td>
+                      <td className="num mono">{formatINR(i.principalPaid + i.interestPaid)}</td>
+                      <td>
+                        <StatusBadge status={i.status} />
+                      </td>
+                      <td className="num" style={{ whiteSpace: "nowrap" }}>
+                        <div className="row" style={{ justifyContent: "flex-end", gap: 4 }}>
+                          {i.status !== "paid" && (
+                            <Button size="sm" variant="ghost" onClick={() => openQuickPay(i)} title="Record payment for this installment">
+                              Pay
+                            </Button>
+                          )}
+                          {recorded.map((ev) => (
+                            <span key={ev.id} className="row" style={{ gap: 2 }}>
+                              <button
+                                className="btn btn-sm btn-ghost"
+                                onClick={() => setEditEvent(ev)}
+                                title={`Edit ${ev.type === EVENT_TYPES.INTEREST_PAYMENT ? "interest" : ev.type === EVENT_TYPES.LATE_FEE ? "late fee" : "principal"} payment (${formatINR(ev.amount)})`}
+                                style={{ padding: "4px 8px", borderRadius: 8 }}
+                              >
+                                <IconEdit width={13} height={13} />
+                              </button>
+                              <button
+                                className="btn btn-sm btn-ghost"
+                                onClick={() => setDeleteConfirm(ev)}
+                                title="Delete this payment"
+                                style={{ padding: "4px 8px", borderRadius: 8, color: "var(--red)" }}
+                              >
+                                <IconTrash width={13} height={13} />
+                              </button>
+                            </span>
+                          ))}
                         </div>
-                      )}
-                    </td>
-                    <td className="num">{formatINR(i.principalDue)}</td>
-                    <td className="num">{formatINR(i.interestDue)}</td>
-                    <td className="num" style={{ fontWeight: 650 }}>{formatINR(i.totalDue)}</td>
-                    <td className="num mono">{formatINR(i.principalPaid + i.interestPaid)}</td>
-                    <td>
-                      <StatusBadge status={i.status} />
-                    </td>
-                    <td className="num">
-                      {i.status !== "paid" && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            const date = new Date().toISOString().slice(0, 10);
-                            // record principal + interest as one combined flow via two events
-                            setShowRepay({
-                              type: EVENT_TYPES.PRINCIPAL_PAYMENT,
-                              memberId: loan.memberId,
-                              loanId: loan.id,
-                              amount: String(Math.max(i.principalLeft, 0.01)),
-                              date,
-                              description: `Installment ${i.index + 1} — principal`,
-                            });
-                          }}
-                        >
-                          Pay
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+          </div>
+          <div className="small faint" style={{ padding: "8px 14px" }}>
+            ✎ edits a payment recorded against that installment · 🗑 removes it · Pay records principal + interest in one go
           </div>
         </Card>
 
@@ -248,8 +317,67 @@ export default function LoanDetail() {
         </div>
       </div>
 
-      <EventFormModal open={!!showRepay} onClose={() => setShowRepay(null)} preset={showRepay || {}} />
-      <LoanFormModal open={showEdit} onClose={() => setShowEdit(false)} editLoan={loan} />
+      <EventFormModal
+        open={!!showRepay}
+        onClose={() => setShowRepay(null)}
+        preset={showRepay || {}}
+      />
+      <EventFormModal
+        open={!!editEvent}
+        onClose={() => setEditEvent(null)}
+        editEvent={editEvent}
+        onDelete={(ev) => {
+          deleteEvent(ev.id);
+          toast("Payment deleted.");
+        }}
+      />
+      <ConfirmModal
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={() => {
+          if (deleteConfirm) {
+            deleteEvent(deleteConfirm.id);
+            toast("Payment deleted.");
+          }
+          setDeleteConfirm(null);
+        }}
+        title="Delete payment?"
+        confirmLabel="Delete"
+        danger
+      >
+        <p className="muted">
+          This removes the {deleteConfirm?.type === EVENT_TYPES.INTEREST_PAYMENT ? "interest" : deleteConfirm?.type === EVENT_TYPES.LATE_FEE ? "late fee" : "principal"} payment
+          {" "}<b>{formatINR(deleteConfirm?.amount || 0)}</b> recorded on {formatDate(deleteConfirm?.date)}.
+          <br /><br />
+          The installment status will re-derive automatically. This cannot be undone.
+        </p>
+      </ConfirmModal>
+      <ConfirmModal
+        open={confirmWriteOff}
+        onClose={() => setConfirmWriteOff(false)}
+        onConfirm={() => {
+          addEvent({
+            type: EVENT_TYPES.LOAN_WRITE_OFF,
+            date: todayISO(),
+            memberId: loan.memberId,
+            loanId: loan.id,
+            amount: view.outstandingPrincipal,
+            description: "Bad debt write-off (remaining principal)",
+          });
+          setConfirmWriteOff(false);
+          toast("Loan written off.");
+        }}
+        title="Write off this loan?"
+        confirmLabel="Write off"
+        danger
+      >
+        <p className="muted">
+          Records a <b>bad debt write-off</b> of <b>{formatINR(view.outstandingPrincipal, { precise: true })}</b> (the principal still
+          outstanding). The loan closes as defaulted and the amount is deducted from this year's profit. No cash moves. You can undo it by
+          deleting the write-off from the ledger.
+        </p>
+      </ConfirmModal>
+      {showEdit && <LoanFormModal open={showEdit} onClose={() => setShowEdit(false)} editLoan={loan} />}
     </div>
   );
 }

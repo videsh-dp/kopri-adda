@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconClose } from "./Icons.jsx";
 import { avatarColor, initials } from "../lib/format.js";
@@ -60,6 +60,7 @@ export function StatusBadge({ status }) {
     defaulted: <Badge tone="red" dot>Defaulted</Badge>,
     paid: <Badge tone="green">Paid</Badge>,
     due: <Badge tone="amber">Due</Badge>,
+    written_off: <Badge tone="gray">Written off</Badge>,
   };
   return map[status] || <Badge tone="gray">{status}</Badge>;
 }
@@ -126,9 +127,9 @@ export function EmptyState({ icon = "📭", title = "Nothing here yet", sub }) {
 }
 
 // ----------------------------------------------------------------- Field
-export function Field({ label, hint, children, className = "" }) {
+export function Field({ label, hint, children, className = "", style }) {
   return (
-    <div className={`form-group ${className}`}>
+    <div className={`form-group ${className}`} style={style}>
       {label && <label>{label}</label>}
       {children}
       {hint && <div className="field-hint">{hint}</div>}
@@ -186,5 +187,75 @@ export function SectionTitle({ children, sub, right }) {
       </div>
       {right}
     </div>
+  );
+}
+
+// --------------------------------------------------------------- Toast
+let toastListeners = [];
+export function toast(msg) {
+  toastListeners.forEach((cb) => cb(msg));
+  setTimeout(() => toastListeners.forEach((cb) => cb("»")), 3600);
+  setTimeout(() => toastListeners.forEach((cb) => cb(null)), 3700);
+}
+
+export function useToast() {
+  const [msg, setMsg] = useState(null);
+  useEffect(() => {
+    const idx = toastListeners.length;
+    toastListeners.push(setMsg);
+    return () => {
+      toastListeners.splice(idx, 1);
+    };
+  }, []);
+  return msg;
+}
+
+export function ToastHost() {
+  const msg = useToast();
+  if (!msg) return null;
+  return (
+    <div
+      className="toast"
+      style={{
+        position: "fixed",
+        bottom: 84,
+        left: "50%",
+        transform: "translateX(-50%)",
+        background: "var(--bg-elev)",
+        border: "1px solid var(--border-strong)",
+        borderRadius: 12,
+        padding: "10px 18px",
+        boxShadow: "var(--shadow-lg)",
+        zIndex: 200,
+        fontWeight: 600,
+        fontSize: 13.5,
+        color: "var(--text)",
+        maxWidth: "90vw",
+        textAlign: "center",
+      }}
+    >
+      {msg}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------- ConfirmModal
+export function ConfirmModal({ open, onClose, onConfirm, title, children, confirmLabel = "Confirm", danger = false }) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={title}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onConfirm} variant={danger ? "danger" : "primary"}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      {children}
+    </Modal>
   );
 }

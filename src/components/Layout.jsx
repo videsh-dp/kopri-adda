@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
 import { useKopri } from "../state/KopriContext.jsx";
 import { formatDate, todayISO } from "../lib/format.js";
 import KopriSwitcher from "./KopriSwitcher.jsx";
@@ -13,6 +14,8 @@ import {
   IconRules,
   IconSun,
   IconMoon,
+  IconMenu,
+  IconRefresh,
 } from "./Icons.jsx";
 
 const NAV = [
@@ -64,6 +67,26 @@ export default function Layout() {
   const activePage = MOBILE.find((i) => (i.end ? location.pathname === i.to : location.pathname.startsWith(i.to)));
   const kopriName = state?.name || rules.kopriName || "Kopri Manager";
 
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const toggleMobileMenu = () => setShowMobileMenu((v) => !v);
+  const closeMobileMenu = () => setShowMobileMenu(false);
+
+  // Scroll-to-top button: show when scrolled down
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const scrollTopRef = useRef(null);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 400);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -95,6 +118,9 @@ export default function Layout() {
 
       <div className="main">
         <header className="topbar">
+          <button className="mobile-menu-btn" onClick={toggleMobileMenu} aria-label="Menu">
+            <IconMenu />
+          </button>
           <h1>{activePage?.label || "Kopri Manager"}</h1>
           <span className="topbar-meta">{formatDate(todayISO())}</span>
           <div className="topbar-spacer" />
@@ -104,11 +130,28 @@ export default function Layout() {
         <main className="content">
           <Outlet />
         </main>
+
+        <button
+          className={`scroll-top ${showScrollTop ? "visible" : ""}`}
+          onClick={scrollToTop}
+          aria-label="Scroll to top"
+        >
+          <IconRefresh />
+        </button>
       </div>
 
-      <nav className="mobile-nav">
-        {MOBILE.slice(0, 5).map((item) => (
-          <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => (isActive ? "active" : "")}>
+      {showMobileMenu && (
+        <div className="mobile-menu-overlay" onClick={closeMobileMenu} />
+      )}
+      <nav className={"mobile-nav" + (showMobileMenu ? " open" : "")}>
+        {MOBILE.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) => (isActive ? "active" : "")}
+            onClick={closeMobileMenu}
+          >
             <item.icon width={20} height={20} />
             {item.label}
           </NavLink>

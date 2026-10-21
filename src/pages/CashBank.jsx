@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useKopri } from "../state/KopriContext.jsx";
-import { deriveAccounts, sortLedger } from "../lib/calculations.js";
+import { deriveAccounts, sortLedger, cashDelta, deriveLoan } from "../lib/calculations.js";
 import { formatINR, formatDate } from "../lib/format.js";
 import { Card, StatCard, Badge, Button, EmptyState } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
@@ -29,23 +29,23 @@ export default function CashBank() {
   const [showTransfer, setShowTransfer] = useState(false);
 
   const accounts = useMemo(() => deriveAccounts(state.events), [state.events]);
+  const loansOutstanding = useMemo(
+    () => state.loans.reduce((a, l) => a + deriveLoan(l, state.events).outstandingPrincipal, 0),
+    [state.loans, state.events]
+  );
   const memberById = useMemo(() => Object.fromEntries(state.members.map((m) => [m.id, m])), [state.members]);
 
   const entries = useMemo(() => {
-    let list = sortLedger(state.events);
-    if (account === "cash") list = list.filter((e) => e.account === "cash" || (e.type === "TRANSFER" && e.to === "cash"));
-    if (account === "bank") list = list.filter((e) => e.account === "bank" || (e.type === "TRANSFER" && e.to === "bank"));
+    // Only real money movements: profit allocations and write-offs are book entries.
+    let list = sortLedger(state.events).filter((e) => e.type === "TRANSFER" || cashDelta(e) !== 0);
+    const touches = (e, acc) => (e.type === "TRANSFER" ? e.from === acc || e.to === acc : e.account === acc);
+    if (account === "cash") list = list.filter((e) => touches(e, "cash"));
+    if (account === "bank") list = list.filter((e) => touches(e, "bank"));
     return list;
   }, [state.events, account]);
 
-  const isIn = (e) => {
-    const ins = ["MEMBER_CONTRIBUTION", "PRINCIPAL_PAYMENT", "INTEREST_PAYMENT", "LATE_FEE", "OTHER_INCOME", "PROFIT_ALLOCATION"];
-    return ins.includes(e.type) || (e.type === "ADJUSTMENT" && e.sign !== "negative");
-  };
-  const isOut = (e) => {
-    const outs = ["MEMBER_WITHDRAWAL", "LOAN_DISBURSEMENT", "EXPENSE", "MEMBER_SETTLEMENT", "LOAN_WRITE_OFF"];
-    return outs.includes(e.type) || (e.type === "ADJUSTMENT" && e.sign === "negative");
-  };
+  const isIn = (e) => cashDelta(e) > 0;
+  const isOut = (e) => cashDelta(e) < 0;
   const affectsAccount = (e) => {
     if (e.type === "TRANSFER") return true;
     return e.account === account || account === "all";
@@ -67,7 +67,7 @@ export default function CashBank() {
         <StatCard label="Cash on hand" value={formatINR(accounts.cash)} foot="Money physically in the tin" color="var(--teal)" />
         <StatCard label="Bank balance" value={formatINR(accounts.bank)} foot="Money in the bank account" color="var(--blue)" />
         <StatCard label="Total liquid" value={formatINR(accounts.total)} foot="Cash + bank, derived from ledger" color="var(--primary)" />
-        <StatCard label="Out in loans" value={formatINR(state.events.filter((e) => e.type === "LOAN_DISBURSEMENT").reduce((a, e) => a + Number(e.amount), 0) - state.events.filter((e) => e.type === "PRINCIPAL_PAYMENT").reduce((a, e) => a + Number(e.amount), 0))} foot="Net disbursed minus principal repaid" color="var(--violet)" />
+        <StatCard label="Out in loans" value={formatINR(loansOutstanding)} foot="Principal still outstanding on loans" color="var(--violet)" />
       </div>
 
       <div className="toolbar" style={{ marginTop: 18 }}>
