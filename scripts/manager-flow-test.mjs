@@ -302,7 +302,8 @@ try {
   text = await bodyText();
   // Income: interest 240 + 240 + 240 = 720, late fees 100 + 100 + 50 = 250 → gross 970.
   ok("year end: manager's charges 10% of ₹970 = ₹97", text.includes("₹97") && text.includes("Manager"), text.match(/Manager[^\n]*\n[^\n]*/)?.[0]);
-  ok("year end: borrower-only Carlos gets no profit share", !(await page.evaluate(() => [...document.querySelectorAll("tbody tr")].some((r) => r.innerText.includes("Carlos Mgr")))));
+  // (Carlos may still appear in the unpaid-interest table, which lists borrowers.)
+  ok("year end: borrower-only Carlos gets no profit share", !(await page.evaluate(() => [...document.querySelectorAll("table:not(.unpaid-interest) tbody tr")].some((r) => r.innerText.includes("Carlos Mgr")))));
   await clickButton("Save allocation");
   await sleep(250);
   await primary();

@@ -18,7 +18,9 @@
 import { DEFAULT_RULES } from "../lib/constants.js";
 import { uid, todayISO, round2 } from "../lib/format.js";
 import { buildDemoState } from "../lib/demoData.js";
-import { loanReferralError } from "../lib/calculations.js";
+import { loanReferralError, unpaidInterestEvents } from "../lib/calculations.js";
+
+const INTEREST_TREATMENT_TYPES = ["INTEREST_CAPITALIZED", "INTEREST_TO_ARREARS", "INTEREST_WAIVED"];
 
 export const ROOT_VERSION = 2;
 export const DEFAULT_KOPRI_NAME = "My Kopri";
@@ -262,8 +264,18 @@ function bookReducer(book, action) {
           description: `FY ${y.year} profit allocation`,
           createdAt: new Date().toISOString(),
         }));
-      const withoutOld = book.events.filter((e) => !(e.type === "PROFIT_ALLOCATION" && e.date === y.yearEndDate));
-      return { ...book, yearEnds: [...rest, { ...y, settled: false }], events: [...withoutOld, ...allocationEvents] };
+      // Unpaid interest at year end: one non-cash entry per treated loan.
+      const treatmentEvents = unpaidInterestEvents(y.unpaidInterest || [], y.year, y.yearEndDate).map((e) => ({
+        id: uid("ev"),
+        createdAt: new Date().toISOString(),
+        ...e,
+      }));
+      const withoutOld = book.events.filter(
+        (e) =>
+          !(e.type === "PROFIT_ALLOCATION" && e.date === y.yearEndDate) &&
+          !(INTEREST_TREATMENT_TYPES.includes(e.type) && e.yearEnd === String(y.year))
+      );
+      return { ...book, yearEnds: [...rest, { ...y, settled: false }], events: [...withoutOld, ...allocationEvents, ...treatmentEvents] };
     }
 
     case "SETTLE_YEAR_END": {

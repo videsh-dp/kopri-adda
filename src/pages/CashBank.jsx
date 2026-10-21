@@ -22,6 +22,9 @@ const LABELS = {
   PROFIT_ALLOCATION: "Profit allocated",
   MEMBER_SETTLEMENT: "Settlement",
   MANAGER_PAYOUT: "Manager's share",
+  INTEREST_CAPITALIZED: "Interest capitalized",
+  INTEREST_TO_ARREARS: "Interest to arrears",
+  INTEREST_WAIVED: "Interest waived",
 };
 
 export default function CashBank() {

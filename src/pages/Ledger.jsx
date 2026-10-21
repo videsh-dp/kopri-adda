@@ -32,8 +32,13 @@ const EVENT_LABELS = {
   PROFIT_ALLOCATION: "Profit allocated",
   MEMBER_SETTLEMENT: "Settlement",
   MANAGER_PAYOUT: "Manager's share",
+  INTEREST_CAPITALIZED: "Interest capitalized",
+  INTEREST_TO_ARREARS: "Interest to arrears",
+  INTEREST_WAIVED: "Interest waived",
 };
 
+
+const YEAR_END_INTEREST_TYPES = ["INTEREST_CAPITALIZED", "INTEREST_TO_ARREARS", "INTEREST_WAIVED"];
 
 export default function Ledger() {
   const { state } = useKopri();
@@ -190,14 +195,17 @@ export default function Ledger() {
                         {formatINR(e.running)}
                       </td>
                       <td className="num" style={{ width: 64 }}>
-                        <button
-                          className="btn btn-sm btn-ghost"
-                          onClick={() => setEditEvent(e)}
-                          title="Edit transaction"
-                          style={{ padding: "4px 8px", borderRadius: 8 }}
-                        >
-                          <IconEdit width={13} height={13} />
-                        </button>
+                        {/* Year-end interest entries are split per installment: delete to undo, don't edit. */}
+                        {!YEAR_END_INTEREST_TYPES.includes(e.type) && (
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            onClick={() => setEditEvent(e)}
+                            title="Edit transaction"
+                            style={{ padding: "4px 8px", borderRadius: 8 }}
+                          >
+                            <IconEdit width={13} height={13} />
+                          </button>
+                        )}
                         <button
                           className="btn btn-sm btn-ghost"
                           onClick={() => setDeleteConfirm(e)}

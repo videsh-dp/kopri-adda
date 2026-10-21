@@ -3,10 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { deriveLoan, deriveMember } from "../lib/calculations.js";
 import { formatINR, formatDate, round2, todayISO } from "../lib/format.js";
-import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState, ConfirmModal, toast } from "../components/ui.jsx";
+import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState, ConfirmModal, Modal, Field, NumberInput, toast } from "../components/ui.jsx";
 import { LoanFormModal, EventFormModal } from "../components/modals.jsx";
 import { IconArrow, IconPlus, IconEdit, IconTrash } from "../components/Icons.jsx";
-import { EVENT_TYPES } from "../lib/constants.js";
+import { EVENT_TYPES, UNPAID_INTEREST_LABELS, UNPAID_INTEREST_RULES } from "../lib/constants.js";
 
 const PAYMENT_TYPES = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE];
 
@@ -15,6 +15,7 @@ export default function LoanDetail() {
   const navigate = useNavigate();
   const { state, deleteEvent, addEvent, updateLoan } = useKopri();
   const [confirmWriteOff, setConfirmWriteOff] = useState(false);
+  const [arrearsPay, setArrearsPay] = useState(null); // { amount, date } while collecting arrears
   const [showRepay, setShowRepay] = useState(null); // quick-pay preset for the event modal
   const [editEvent, setEditEvent] = useState(null); // event being edited
   const [deleteConfirm, setDeleteConfirm] = useState(null); // event pending delete
@@ -187,7 +188,12 @@ export default function LoanDetail() {
       </Card>
 
       <div className="stat-grid">
-        <StatCard label="Principal repaid" value={formatINR(view.principalPaid)} foot={`${Math.round(view.paidRatio * 100)}% of ${formatINR(loan.principal)}`} color="var(--teal)" />
+        <StatCard
+          label="Principal repaid"
+          value={formatINR(view.principalPaid)}
+          foot={`${Math.round(view.paidRatio * 100)}% of ${formatINR(view.totalPrincipal)}${view.interestCapitalized > 0.5 ? " (incl. capitalized interest)" : ""}`}
+          color="var(--teal)"
+        />
         <StatCard label="Interest received" value={formatINR(view.interestPaid)} foot={`of ${formatINR(totals.interest)} scheduled`} color="var(--green)" />
         <StatCard
           label="Late fees due"
@@ -197,6 +203,27 @@ export default function LoanDetail() {
         />
         <StatCard label="Borrower capital" value={formatINR(borrowerView?.capital || 0)} foot="Security against this loan" color="var(--violet)" />
       </div>
+
+      {view.interestCapitalized + view.interestToArrears + view.interestWaived > 0.5 && (
+        <div className={`alert ${view.interestArrears > 0.5 ? "alert-amber" : "alert-blue"} spread`} style={{ flexWrap: "wrap", gap: 10 }}>
+          <span>
+            Year-end unpaid interest:{" "}
+            {[
+              view.interestCapitalized > 0.5 && `${formatINR(view.interestCapitalized, { precise: true })} added to principal`,
+              view.interestToArrears > 0.5 &&
+                `${formatINR(view.interestToArrears, { precise: true })} moved to arrears (${formatINR(view.interestArrears, { precise: true })} still owed)`,
+              view.interestWaived > 0.5 && `${formatINR(view.interestWaived, { precise: true })} waived`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+          {view.interestArrears > 0.5 && (
+            <Button size="sm" onClick={() => setArrearsPay({ amount: String(view.interestArrears), date: todayISO() })}>
+              Collect arrears
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="row" style={{ alignItems: "flex-start" }}>
         <Card title="Repayment Schedule" sub={`${view.installments.length} installments · ${loan.principalRepayment.replace("_", " ")} principal · ${loan.interestCollection} interest`} pad={false} className="grow">
@@ -230,7 +257,14 @@ export default function LoanDetail() {
                         )}
                       </td>
                       <td className="num">{formatINR(i.principalDue)}</td>
-                      <td className="num">{formatINR(i.interestDue)}</td>
+                      <td className="num">
+                        {formatINR(i.interestDue)}
+                        {i.interestCleared > 0.005 && (
+                          <div className="small muted" title="Unpaid interest treated at a year end (capitalized, moved to arrears or waived)">
+                            {formatINR(i.interestCleared, { precise: true })} settled at year end
+                          </div>
+                        )}
+                      </td>
                       <td className="num" style={{ fontWeight: 650 }}>{formatINR(i.totalDue)}</td>
                       <td className="num mono">{formatINR(i.principalPaid + i.interestPaid)}</td>
                       <td>
@@ -291,7 +325,7 @@ export default function LoanDetail() {
                 ...(loan.lateRule === "fixed_penalty" ? [["Late fee", `${formatINR(loan.lateFixedPenalty)} / installment`]] : []),
                 ...(loan.lateRule === "percentage_penalty" ? [["Late fee", `${loan.latePercentagePenalty}% of overdue`]] : []),
                 ...(loan.lateRule === "additional_interest" ? [["Extra late interest", `${loan.lateAdditionalInterestRate}% / month`]] : []),
-                ["Unpaid interest", loan.unpaidInterestRule.replace(/_/g, " ")],
+                ["Unpaid interest at year end", UNPAID_INTEREST_LABELS[loan.unpaidInterestRule || state.rules.unpaidInterestRule || UNPAID_INTEREST_RULES.CARRY_FORWARD]],
               ].map(([k, v]) => (
                 <div className="spread" key={k}>
                   <span className="small muted">{k}</span>
@@ -397,6 +431,48 @@ export default function LoanDetail() {
           deleting the write-off from the ledger.
         </p>
       </ConfirmModal>
+      <Modal
+        open={!!arrearsPay}
+        onClose={() => setArrearsPay(null)}
+        title="Collect interest arrears"
+        footer={
+          <>
+            <Button onClick={() => setArrearsPay(null)}>Cancel</Button>
+            <Button
+              variant="primary"
+              disabled={!(Number(arrearsPay?.amount) > 0)}
+              onClick={() => {
+                addEvent({
+                  type: EVENT_TYPES.INTEREST_PAYMENT,
+                  date: arrearsPay.date,
+                  memberId: loan.memberId,
+                  loanId: loan.id,
+                  amount: Number(arrearsPay.amount),
+                  arrears: true,
+                  description: "Interest arrears payment",
+                });
+                setArrearsPay(null);
+                toast("Arrears payment recorded.");
+              }}
+            >
+              Record payment
+            </Button>
+          </>
+        }
+      >
+        <p className="muted" style={{ marginTop: 0 }}>
+          {formatINR(view.interestArrears, { precise: true })} of interest arrears is still owed. This payment is counted as interest income
+          in the year it's received.
+        </p>
+        <div className="form-grid">
+          <Field label="Date">
+            <input type="date" value={arrearsPay?.date || ""} onChange={(e) => setArrearsPay((p) => ({ ...p, date: e.target.value }))} />
+          </Field>
+          <Field label="Amount (₹)">
+            <NumberInput value={arrearsPay?.amount || ""} min="0" onChange={(e) => setArrearsPay((p) => ({ ...p, amount: e.target.value }))} />
+          </Field>
+        </div>
+      </Modal>
       {showEdit && <LoanFormModal open={showEdit} onClose={() => setShowEdit(false)} editLoan={loan} />}
     </div>
   );
