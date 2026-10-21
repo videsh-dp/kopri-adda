@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard.jsx";
 import Members from "./pages/Members.jsx";
 import MemberDetail from "./pages/MemberDetail.jsx";
 import Loans from "./pages/Loans.jsx";
+import Deposits from "./pages/Deposits.jsx";
 import LoanDetail from "./pages/LoanDetail.jsx";
 import Ledger from "./pages/Ledger.jsx";
 import CashBank from "./pages/CashBank.jsx";
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/members" element={<Members />} />
           <Route path="/members/:id" element={<MemberDetail />} />
+          <Route path="/deposits" element={<Deposits />} />
           <Route path="/loans" element={<Loans />} />
           <Route path="/loans/:id" element={<LoanDetail />} />
           <Route path="/ledger" element={<Ledger />} />

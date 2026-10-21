@@ -112,6 +112,26 @@ export const LOAN_STATUS = {
   DEFAULTED: "defaulted",
 };
 
+// A person in the Kopri: depositors pay monthly deposits and share year-end
+// profit; borrowers only take loans (they must be referred by a depositor).
+export const MEMBER_ROLES = {
+  DEPOSITOR: "depositor",
+  BORROWER: "borrower",
+  BOTH: "both",
+};
+
+export const MEMBER_ROLE_LABELS = {
+  [MEMBER_ROLES.DEPOSITOR]: "Depositor",
+  [MEMBER_ROLES.BORROWER]: "Borrower",
+  [MEMBER_ROLES.BOTH]: "Depositor & borrower",
+};
+
+export const DEPOSIT_LATE_FEE = {
+  NONE: "none",
+  FIXED: "fixed",
+  PERCENTAGE: "percentage",
+};
+
 export const MEMBER_STATUS = {
   ACTIVE: "active",
   INACTIVE: "inactive",
@@ -151,6 +171,17 @@ export const DEFAULT_RULES = {
   reserveRate: 5, // % of net profit held as reserve
   managerChargesRate: 5, // % of net profit as manager's commission
   profitDistribution: PROFIT_DISTRIBUTION.CONTRIBUTION_X_TIME,
+
+  // Monthly deposits
+  defaultMonthlyDeposit: 5000, // ₹ per depositor per month (overridable per member)
+  depositDueDay: 1, // deposit falls due on this day of the month
+  depositDeadlineDay: 15, // unpaid after this day = late (next month if before the due day)
+  depositLateFeeType: DEPOSIT_LATE_FEE.NONE,
+  depositLateFeeFixed: 100, // ₹ per late month
+  depositLateFeePercent: 2, // % of the month's deposit
+
+  // Lending rules
+  requireReferral: true, // every new loan must be referred by an active depositor
 };
 
 // Event kinds used for reporting/derived balances

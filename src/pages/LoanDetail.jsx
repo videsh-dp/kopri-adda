@@ -25,6 +25,7 @@ export default function LoanDetail() {
   const borrower = loan ? state.members.find((m) => m.id === loan.memberId) : null;
   const borrowerView = borrower ? deriveMember(borrower, state.events, state.loans) : null;
   const guarantors = loan ? loan.guarantorIds?.map((g) => state.members.find((m) => m.id === g)).filter(Boolean) : [];
+  const referrer = loan?.referredById ? state.members.find((m) => m.id === loan.referredById) : null;
 
   // Payment events tagged to each installment, for per-installment edit/delete.
   const eventsByInstallment = useMemo(() => {
@@ -173,7 +174,8 @@ export default function LoanDetail() {
           <div className={`alert ${nextDue.status === "overdue" ? "alert-red" : "alert-blue"}`} style={{ marginTop: 14 }}>
             {nextDue.status === "overdue" ? (
               <b>
-                Installment #{nextDue.index + 1} is {nextDue.overdueDays} days overdue — {formatINR(nextDue.principalLeft + nextDue.interestLeft)} due.
+                Installment #{nextDue.index + 1} is {nextDue.overdueDays} days overdue — {formatINR(nextDue.principalLeft + nextDue.interestLeft)} due
+                {view.lateFeesDue > 0.005 ? <>, plus {formatINR(view.lateFeesDue)} late fees built up so far</> : null}.
               </b>
             ) : (
               <b>
@@ -187,7 +189,12 @@ export default function LoanDetail() {
       <div className="stat-grid">
         <StatCard label="Principal repaid" value={formatINR(view.principalPaid)} foot={`${Math.round(view.paidRatio * 100)}% of ${formatINR(loan.principal)}`} color="var(--teal)" />
         <StatCard label="Interest received" value={formatINR(view.interestPaid)} foot={`of ${formatINR(totals.interest)} scheduled`} color="var(--green)" />
-        <StatCard label="Late fees collected" value={formatINR(view.lateFeesPaid)} foot="Penalties on late installments" color="var(--amber)" />
+        <StatCard
+          label="Late fees due"
+          value={formatINR(view.lateFeesDue)}
+          foot={`${formatINR(view.lateFeesPaid)} collected so far · ${loan.lateRule.replace(/_/g, " ")}`}
+          color="var(--amber)"
+        />
         <StatCard label="Borrower capital" value={formatINR(borrowerView?.capital || 0)} foot="Security against this loan" color="var(--violet)" />
       </div>
 
@@ -218,6 +225,7 @@ export default function LoanDetail() {
                         {i.status === "overdue" && (
                           <div className="small" style={{ color: "var(--red)" }}>
                             {i.overdueDays}d late
+                            {i.lateFeeDue > 0.005 && <> · +{formatINR(i.lateFeeDue, { precise: true })} late fee</>}
                           </div>
                         )}
                       </td>
@@ -264,7 +272,7 @@ export default function LoanDetail() {
             </table>
           </div>
           <div className="small faint" style={{ padding: "8px 14px" }}>
-            ✎ edits a payment recorded against that installment · 🗑 removes it · Pay records principal + interest in one go
+            ✎ edits a payment recorded against that installment · 🗑 removes it · Pay lets you pay principal, interest or both, in full or in part, plus any late fee
           </div>
         </Card>
 
@@ -280,6 +288,9 @@ export default function LoanDetail() {
                 ["Tenure", `${loan.tenureMonths} months`],
                 ["Grace period", `${loan.gracePeriodDays} days`],
                 ["Late rule", loan.lateRule.replace(/_/g, " ")],
+                ...(loan.lateRule === "fixed_penalty" ? [["Late fee", `${formatINR(loan.lateFixedPenalty)} / installment`]] : []),
+                ...(loan.lateRule === "percentage_penalty" ? [["Late fee", `${loan.latePercentagePenalty}% of overdue`]] : []),
+                ...(loan.lateRule === "additional_interest" ? [["Extra late interest", `${loan.lateAdditionalInterestRate}% / month`]] : []),
                 ["Unpaid interest", loan.unpaidInterestRule.replace(/_/g, " ")],
               ].map(([k, v]) => (
                 <div className="spread" key={k}>
@@ -292,11 +303,20 @@ export default function LoanDetail() {
             </div>
           </Card>
 
-          <Card title="Guarantors & Security" pad style={{ marginTop: 14 }}>
-            {guarantors.length === 0 && !loan.security ? (
+          <Card title="Referral, Guarantors & Security" pad style={{ marginTop: 14 }}>
+            {!referrer && guarantors.length === 0 && !loan.security ? (
               <div className="small muted">None recorded.</div>
             ) : (
               <div className="stack" style={{ gap: 10 }}>
+                {referrer && (
+                  <Link to={`/members/${referrer.id}`} className="row" style={{ gap: 10 }}>
+                    <Avatar name={referrer.name} id={referrer.id} size="sm" />
+                    <div>
+                      <div style={{ fontWeight: 650, fontSize: 13.5 }}>{referrer.name}</div>
+                      <div className="small faint">Referred this loan</div>
+                    </div>
+                  </Link>
+                )}
                 {guarantors.map((g) => (
                   <Link to={`/members/${g.id}`} key={g.id} className="row" style={{ gap: 10 }}>
                     <Avatar name={g.name} id={g.id} size="sm" />

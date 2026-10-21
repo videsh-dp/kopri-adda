@@ -96,7 +96,7 @@ export function KopriProvider({ children }) {
       addMember: (member, openingContribution) => dispatch({ type: "ADD_MEMBER", member, openingContribution }),
       updateMember: (id, patch) => dispatch({ type: "UPDATE_MEMBER", id, patch }),
       deleteMember: (id) => dispatch({ type: "DELETE_MEMBER", id }),
-      addLoan: (loan) => dispatch({ type: "ADD_LOAN", loan }),
+      addLoan: (loan, disbursement) => dispatch({ type: "ADD_LOAN", loan, disbursement }),
       updateLoan: (id, patch) => dispatch({ type: "UPDATE_LOAN", id, patch }),
       addEvent: (event) => dispatch({ type: "ADD_EVENT", event }),
       deleteEvent: (id) => dispatch({ type: "DELETE_EVENT", id }),

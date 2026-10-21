@@ -2,10 +2,10 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, AreaChart, Area } from "recharts";
 import { useKopri } from "../state/KopriContext.jsx";
-import { derivePortfolio, monthlyCashFlow, sortLedger, cashDelta } from "../lib/calculations.js";
+import { derivePortfolio, monthlyCashFlow, sortLedger, cashDelta, depositSummary } from "../lib/calculations.js";
 import { formatINR, formatNumber, formatDate, monthLabel } from "../lib/format.js";
 import { Card, StatCard, Badge, EmptyState, Avatar } from "../components/ui.jsx";
-import { IconMoney, IconWarning, IconUsers, IconLoan, IconLedger, IconArrow } from "../components/Icons.jsx";
+import { IconMoney, IconWarning, IconUsers, IconLoan, IconLedger, IconArrow, IconCalendar } from "../components/Icons.jsx";
 
 function ChartTip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -33,6 +33,7 @@ function ChartTip({ active, payload, label }) {
 export default function Dashboard() {
   const { state } = useKopri();
   const portfolio = useMemo(() => derivePortfolio(state), [state]);
+  const deposits = useMemo(() => depositSummary(state), [state]);
   const cashFlow = useMemo(() => monthlyCashFlow(state.events, 12), [state.events]);
   const recent = useMemo(() => sortLedger(state.events).slice(0, 8), [state.events]);
   const memberById = useMemo(() => Object.fromEntries(state.members.map((m) => [m.id, m])), [state.members]);
@@ -97,15 +98,22 @@ export default function Dashboard() {
         <StatCard
           label="Interest Receivable"
           value={formatINR(portfolio.interestReceivable)}
-          foot={`${formatINR(portfolio.overdueAmount)} overdue incl. principal`}
+          foot={`${formatINR(portfolio.overdueAmount)} overdue incl. principal · ${formatINR(portfolio.lateFeesDue)} late fees`}
           color="var(--amber)"
         />
         <StatCard
           label="Member Capital"
           value={formatINR(portfolio.totalCapital)}
-          foot={`${portfolio.membersActive} active members`}
+          foot={`${portfolio.depositorsActive} active depositors`}
           color="var(--violet)"
           icon={<IconUsers />}
+        />
+        <StatCard
+          label="Deposits This Month"
+          value={formatINR(deposits.collected)}
+          foot={`of ${formatINR(deposits.expected)} · ${deposits.unpaid.length} unpaid`}
+          color="var(--green)"
+          icon={<IconCalendar />}
         />
         <StatCard
           label="Cash & Bank"
@@ -121,8 +129,24 @@ export default function Dashboard() {
           <div>
             <b>{overdueLoans.length} overdue loan{overdueLoans.length === 1 ? "" : "s"}</b>
             {defaulted.length > 0 && <> · {defaulted.length} defaulted</>} —{" "}
-            {formatINR(portfolio.overdueAmount)} at risk.
+            {formatINR(portfolio.overdueAmount)} at risk
+            {portfolio.lateFeesDue > 0.005 && <>, plus {formatINR(portfolio.lateFeesDue)} late fees built up</>}.
             <Link to="/loans" style={{ fontWeight: 700, textDecoration: "underline", marginLeft: 6 }}>
+              Review
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {deposits.lateMembers.length > 0 && (
+        <div className="alert alert-amber">
+          <IconCalendar width={18} height={18} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <b>
+              {deposits.lateMembers.length} member{deposits.lateMembers.length === 1 ? " is" : "s are"} behind on monthly deposits
+            </b>{" "}
+            — {formatINR(deposits.arrears)} in arrears ({deposits.lateMembers.map((r) => r.member.name.split(" ")[0]).join(", ")}).
+            <Link to="/deposits" style={{ fontWeight: 700, textDecoration: "underline", marginLeft: 6 }}>
               Review
             </Link>
           </div>

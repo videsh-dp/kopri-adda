@@ -40,6 +40,7 @@ export default function Loans() {
     return {
       outstanding: all.reduce((a, l) => a + l.outstandingPrincipal, 0),
       overdue: all.reduce((a, l) => a + l.overduePrincipal + l.overdueInterest, 0),
+      lateFees: all.reduce((a, l) => a + l.lateFeesDue, 0),
       disbursed: all.reduce((a, l) => a + l.principal, 0),
     };
   }, [state]);
@@ -52,6 +53,7 @@ export default function Loans() {
           <div className="page-sub">
             {formatINR(totals.disbursed)} disbursed · {formatINR(totals.outstanding)} outstanding ·{" "}
             {totals.overdue > 0 && <span className="amount-neg">{formatINR(totals.overdue)} overdue</span>}
+            {totals.lateFees > 0 && <span className="amount-neg"> + {formatINR(totals.lateFees)} late fees</span>}
           </div>
         </div>
         <Button variant="primary" onClick={() => setShowAdd(true)}>
@@ -107,7 +109,11 @@ export default function Loans() {
                     <tr key={l.id} className="row-link" onClick={() => navigate(`/loans/${l.id}`)}>
                       <td className="mono muted">{l.id.toUpperCase()}</td>
                       <td>
-                        <MemberCell name={m?.name || "Unknown"} sub={m?.phone} id={l.memberId} />
+                        <MemberCell
+                          name={m?.name || "Unknown"}
+                          sub={memberById[l.referredById] ? `ref. by ${memberById[l.referredById].name}` : m?.phone}
+                          id={l.memberId}
+                        />
                       </td>
                       <td style={{ fontWeight: 650 }}>{formatINR(l.principal)}</td>
                       <td className="muted small">
@@ -119,6 +125,7 @@ export default function Loans() {
                         {l.effectiveStatus === "overdue" && (
                           <div className="small" style={{ color: "var(--red)", marginTop: 3 }}>
                             {l.overdueDaysMax}d late
+                            {l.lateFeesDue > 0.005 && <> · +{formatINR(l.lateFeesDue)} fees</>}
                           </div>
                         )}
                       </td>

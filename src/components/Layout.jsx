@@ -16,6 +16,7 @@ import {
   IconMoon,
   IconMenu,
   IconRefresh,
+  IconCalendar,
 } from "./Icons.jsx";
 
 const NAV = [
@@ -24,6 +25,7 @@ const NAV = [
     section: "People & Loans",
     items: [
       { to: "/members", label: "Members", icon: IconUsers },
+      { to: "/deposits", label: "Deposits", icon: IconCalendar },
       { to: "/loans", label: "Loans", icon: IconLoan },
     ],
   },

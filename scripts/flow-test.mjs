@@ -87,12 +87,49 @@ try {
     await clickButton("Add member");
     await sleep(250);
     await setField("Full name", name);
-    await setField("Opening contribution", amt);
+    await setField("Opening deposit", amt);
     await page.evaluate(() => document.querySelector(".modal-foot button.btn-primary").click());
     await sleep(300);
   }
   let b = await book();
   ok("two members with deposits", b.members.length === 2 && b.events.filter((e) => e.type === "MEMBER_CONTRIBUTION").length === 2);
+  ok("opening deposits are one-off, not monthly", b.events.filter((e) => e.type === "MEMBER_CONTRIBUTION").every((e) => e.lumpSum));
+  ok("new members are depositors on the Kopri's monthly amount", b.members.every((m) => m.role === "depositor" && m.monthlyDeposit === 5000));
+
+  // Monthly deposit grid: this month is unpaid for both; pay Asha's from the grid
+  await page.goto(`${BASE}/deposits`, { waitUntil: "networkidle0" });
+  await sleep(300);
+  let text0 = await bodyText();
+  ok("deposits page lists both members", text0.includes("Monthly Deposits") && text0.includes("Asha Flow") && text0.includes("Bosco Flow"));
+  const cellCount = await page.$$eval(".dg-cell.dg-due, .dg-cell.dg-late, .dg-cell.dg-upcoming", (els) => els.filter((e) => !e.closest(".dg-legend")).length);
+  ok("this month shows as unpaid for both", cellCount === 2, cellCount);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll(".deposit-grid tbody tr")].find((r) => r.innerText.includes("Asha Flow"));
+    row.querySelector(".dg-cell").click();
+  });
+  await sleep(300);
+  await page.evaluate(() => document.querySelector(".modal-foot button.btn-primary").click());
+  await sleep(300);
+  b = await book();
+  const asha = b.members.find((m) => m.name === "Asha Flow");
+  const monthly = b.events.find((e) => e.type === "MEMBER_CONTRIBUTION" && e.memberId === asha.id && !e.lumpSum);
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  ok("grid payment is tagged to this month", monthly && monthly.amount === 5000 && monthly.depositMonth === thisMonth, JSON.stringify(monthly));
+  // Paid today: on time before the deadline day, "paid late" after it.
+  const paidCells = await page.$$eval(".deposit-grid .dg-paid, .deposit-grid .dg-paid_late", (els) => els.length);
+  ok("Asha's month shows as paid", paidCells === 1, paidCells);
+
+  // A borrower who is not a member
+  await page.goto(`${BASE}/members`, { waitUntil: "networkidle0" });
+  await clickButton("Add borrower");
+  await sleep(250);
+  await setField("Full name", "Carlos Outsider");
+  await setField("Address", "Margao");
+  await page.evaluate(() => document.querySelector(".modal-foot button.btn-primary").click());
+  await sleep(300);
+  b = await book();
+  const carlos = b.members.find((m) => m.name === "Carlos Outsider");
+  ok("borrower profile saved without deposits", carlos && carlos.role === "borrower" && carlos.address === "Margao" && carlos.monthlyDeposit === 0);
   const bosco = b.members.find((m) => m.name === "Bosco Flow");
 
   // Loan with a custom principal schedule
@@ -100,6 +137,15 @@ try {
   await clickButton("Create loan");
   await sleep(300);
   await setSelectByText("Borrower", "Bosco Flow");
+  await sleep(150);
+  let noRefDisabled = await page.evaluate(() => document.querySelector(".modal-foot button.btn-primary").disabled);
+  ok("can't create a loan without a referral", noRefDisabled);
+  const refOptions = await page.evaluate(() => {
+    const group = [...document.querySelectorAll(".modal .form-group")].find((g) => g.querySelector("label")?.innerText.startsWith("Referred by"));
+    return [...group.querySelectorAll("option")].map((o) => o.text);
+  });
+  ok("referrers are depositors other than the borrower", refOptions.includes("Asha Flow") && !refOptions.includes("Bosco Flow") && !refOptions.includes("Carlos Outsider"), refOptions.join());
+  await setSelectByText("Referred by", "Asha Flow");
   await setField("Principal (₹)", "12000");
   await setField("Interest rate", "2");
   await setField("Tenure (months)", "3");
@@ -135,6 +181,7 @@ try {
   const disb = b.events.find((e) => e.type === "LOAN_DISBURSEMENT");
   ok("loan saved with custom schedule", loan && loan.customPrincipalSchedule?.join() === "2000,0,10000");
   ok("disbursement is linked to the loan", disb && disb.loanId === loan.id && disb.amount === 12000);
+  ok("loan records who referred it", loan.referredById === asha.id);
 
   // Partial payment on installment 1: interest first
   await page.goto(`${BASE}/loans/${loan.id}`, { waitUntil: "networkidle0" });
@@ -168,7 +215,7 @@ try {
   await page.goto(`${BASE}/cash-bank`, { waitUntil: "networkidle0" });
   await sleep(300);
   text = await bodyText();
-  ok("cash on hand = ₹68,500", text.includes("₹68,500"));
+  ok("cash on hand = ₹73,500 (incl. Asha's ₹5,000 monthly deposit)", text.includes("₹73,500"));
   ok("out in loans = ₹0 after write-off", /Out in loans\s*₹0/.test(text));
 
   // Year-end page renders with this year's loss (interest 240 − write-off 11740)
