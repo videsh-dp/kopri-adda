@@ -7,13 +7,14 @@ import {
   PRINCIPAL_REPAYMENT,
   LATE_RULES,
   UNPAID_INTEREST_RULES,
+  UNPAID_INTEREST_LABELS,
   ACCOUNTS,
   EVENT_TYPES,
   MEMBER_ROLES,
   MEMBER_ROLE_LABELS,
 } from "../lib/constants.js";
 import {
-  buildSchedule,
+  deriveLoan,
   computeLateCharges,
   splitPayAmount,
   memberRole,
@@ -607,13 +608,13 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
             <NumberInput value={form.latePercentagePenalty} onChange={set("latePercentagePenalty")} min="0" step="0.1" />
           </Field>
         )}
-        <Field label="Unpaid interest at year end">
+        <Field label="Unpaid interest at year end" hint="Applied on the Year End page when the allocation is saved">
           <select value={form.unpaidInterestRule} onChange={set("unpaidInterestRule")}>
-            <option value={UNPAID_INTEREST_RULES.CARRY_FORWARD}>Carry forward</option>
-            <option value={UNPAID_INTEREST_RULES.SEPARATE_OUTSTANDING}>Separate outstanding</option>
-            <option value={UNPAID_INTEREST_RULES.CAPITALIZE}>Capitalize into principal</option>
-            <option value={UNPAID_INTEREST_RULES.WRITE_OFF}>Write off</option>
-            <option value={UNPAID_INTEREST_RULES.MANUAL}>Manual</option>
+            {Object.entries(UNPAID_INTEREST_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </Field>
         <Field label="Guarantors" hint="Hold Ctrl/Cmd to pick multiple">
@@ -716,43 +717,25 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
     () => (isQuickPay ? state.loans.find((l) => l.id === form.loanId) || null : null),
     [isQuickPay, form.loanId, state.loans]
   );
-  const schedule = useMemo(() => (loan ? buildSchedule(loan) : []), [loan]);
+  // The installment as the ledger stands (payments, prepayments and any
+  // year-end interest treatment already applied).
+  const loanView = useMemo(() => (loan ? deriveLoan(loan, state.events) : null), [loan, state.events]);
   const targetIndex = preset.installmentIndex ?? -1;
-  const installment = targetIndex >= 0 ? schedule[targetIndex] || null : null;
+  const installment = targetIndex >= 0 ? loanView?.installments[targetIndex] || null : null;
 
-  // Paid-so-far per installment (principal/interest) from tagged payment events.
-  const paidByInstallment = useMemo(() => {
-    const arr = [];
-    if (!isQuickPay) return arr;
-    for (const ev of state.events) {
-      if (ev.loanId !== form.loanId) continue;
-      const idx = ev.installmentIndex;
-      if (idx === undefined || idx === null) continue;
-      arr[idx] = arr[idx] || { principal: 0, interest: 0, lateFee: 0 };
-      if (ev.type === EVENT_TYPES.PRINCIPAL_PAYMENT) arr[idx].principal += Number(ev.amount) || 0;
-      else if (ev.type === EVENT_TYPES.INTEREST_PAYMENT) arr[idx].interest += Number(ev.amount) || 0;
-      else if (ev.type === EVENT_TYPES.LATE_FEE) arr[idx].lateFee += Number(ev.amount) || 0;
-    }
-    return arr;
-  }, [isQuickPay, form.loanId, state.events]);
-
-  const instLeft = useMemo(() => {
-    if (!installment) return { principal: 0, interest: 0 };
-    const paid = paidByInstallment[installment.index] || { principal: 0, interest: 0 };
-    return {
-      principal: round2(Math.max(installment.principalDue - paid.principal, 0)),
-      interest: round2(Math.max(installment.interestDue - paid.interest, 0)),
-    };
-  }, [installment, paidByInstallment]);
+  const instLeft = useMemo(
+    () => (installment ? { principal: installment.principalLeft, interest: installment.interestLeft } : { principal: 0, interest: 0 }),
+    [installment]
+  );
 
   // Late-payment charges on this installment as of the payment date, less any
   // late fee already collected on it (e.g. with an earlier part-payment).
   const late = useMemo(() => {
     if (!isQuickPay || !installment) return null;
     const c = computeLateCharges(loan, installment, instLeft.principal, instLeft.interest, form.date);
-    const already = round2(paidByInstallment[installment.index]?.lateFee || 0);
+    const already = round2(installment.lateFeePaid || 0);
     return { ...c, alreadyCollected: already, total: round2(Math.max(0, c.total - already)) };
-  }, [isQuickPay, installment, loan, instLeft.principal, instLeft.interest, form.date, paidByInstallment]);
+  }, [isQuickPay, installment, loan, instLeft.principal, instLeft.interest, form.date]);
 
   // In "Principal + interest" mode, show how the entered amount splits.
   const split = useMemo(

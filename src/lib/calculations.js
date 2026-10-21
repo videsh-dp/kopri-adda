@@ -20,6 +20,8 @@ import {
   MEMBER_ROLES,
   DEPOSIT_LATE_FEE,
   DEFAULT_RULES,
+  UNPAID_INTEREST_RULES,
+  UNPAID_INTEREST_EVENT,
 } from "./constants.js";
 import { addMonthsISO, addDaysISO, daysBetween, todayISO, round2, monthsBetween, clamp } from "./format.js";
 
@@ -41,7 +43,11 @@ function equalSplit(total, parts) {
 
 // Build the full repayment schedule for a loan.
 // Returns [{ index, dueDate, principalDue, interestDue, totalDue }]
-export function buildSchedule(loan) {
+// `capitalized` lists unpaid interest added to principal at a year end
+// ([{ date, amount }]): it is repaid over the installments due after that
+// date (or with the last one if none are left), and bears interest from the
+// next period on.
+export function buildSchedule(loan, capitalized = []) {
   const principal = Number(loan.principal) || 0;
   const tenure = Math.max(1, Math.min(Number(loan.tenureMonths) || 1, 600));
   const r = monthlyRate(loan) / 100;
@@ -80,6 +86,19 @@ export function buildSchedule(loan) {
     }
   }
 
+  // Capitalized interest becomes principal due on the remaining installments.
+  for (const c of capitalized) {
+    const amount = Number(c.amount) || 0;
+    if (amount <= 0) continue;
+    const rest = months.filter((m) => m.dueDate > c.date).map((m) => m.index);
+    const targets = rest.length ? rest : [tenure - 1];
+    const each = round2(amount / targets.length);
+    targets.forEach((idx, k) => {
+      principalDue[idx] += k === targets.length - 1 ? round2(amount - each * (targets.length - 1)) : each;
+    });
+  }
+  const capitalizedBy = (iso) => capitalized.reduce((a, c) => a + (c.date <= iso ? Number(c.amount) || 0 : 0), 0);
+
   // --- Interest schedule ---
   // Flat: interest on the full principal, split across collection months.
   // Reducing: outstanding principal at period start × monthly rate.
@@ -93,15 +112,22 @@ export function buildSchedule(loan) {
   const monthlyRatePct = monthlyRate(loan);
   const working = [];
   let outstanding = principal;
+  let capAdded = 0;
   let accrued = 0;
   for (let i = 0; i < tenure; i++) {
     const periodStart = i === 0 ? loan.startDate : months[i - 1].dueDate;
     const days = daysBetween(periodStart, months[i].dueDate);
+    // Interest capitalized on or before this period's start now bears interest.
+    const capToDate = capitalizedBy(periodStart);
+    if (capToDate > capAdded) {
+      outstanding = round2(outstanding + capToDate - capAdded);
+      capAdded = capToDate;
+    }
     const outstandingBefore = outstanding;
     const carriedIn = accrued;
     let periodInterest;
     if (method === INTEREST_METHODS.FLAT) {
-      periodInterest = principal * r;
+      periodInterest = (principal + capitalizedBy(periodStart)) * r;
     } else if (method === INTEREST_METHODS.DAILY_OUTSTANDING) {
       periodInterest = outstanding * r * (days / 30);
     } else {
@@ -156,18 +182,51 @@ const PAYMENT_TYPE_TO_KIND = {
 };
 
 // Aggregate per-installment payments + loan totals from the ledger.
+const INTEREST_TREATMENT_TYPES = [EVENT_TYPES.INTEREST_CAPITALIZED, EVENT_TYPES.INTEREST_TO_ARREARS, EVENT_TYPES.INTEREST_WAIVED];
+
 export function deriveLoan(loan, events, today = todayISO()) {
   const loanEvents = events.filter((e) => e.loanId === loan.id);
-  const schedule = buildSchedule(loan);
+  const treatments = loanEvents.filter((e) => INTEREST_TREATMENT_TYPES.includes(e.type));
+  const capitalized = treatments
+    .filter((e) => e.type === EVENT_TYPES.INTEREST_CAPITALIZED)
+    .map((e) => ({ date: e.date, amount: Number(e.amount) || 0 }));
+  const schedule = buildSchedule(loan, capitalized);
 
   const totals = { principal: 0, interest: 0, lateFee: 0 };
+  const treated = { capitalized: 0, arrears: 0, waived: 0 };
   let writtenOff = 0;
-  const perInstallment = schedule.map(() => ({ principal: 0, interest: 0, lateFee: 0 }));
+  let arrearsPaid = 0;
+  const perInstallment = schedule.map(() => ({ principal: 0, interest: 0, lateFee: 0, interestCleared: 0 }));
   // Payments recorded without an installmentIndex (e.g. via the ledger form)
   // are attributed FIFO: earliest unpaid installment gets the money first.
   const unassigned = { principal: [], interest: [], lateFee: [] };
 
+  // Year-end treatments settle the interest on the installments they name
+  // without any cash: it was capitalized, moved to arrears, or waived.
+  for (const e of treatments) {
+    const amount = Number(e.amount) || 0;
+    if (e.type === EVENT_TYPES.INTEREST_CAPITALIZED) treated.capitalized += amount;
+    else if (e.type === EVENT_TYPES.INTEREST_TO_ARREARS) treated.arrears += amount;
+    else treated.waived += amount;
+    for (const a of e.allocations || []) {
+      const slot = perInstallment[a.index];
+      if (!slot) continue;
+      const amt = Number(a.amount) || 0;
+      slot.interest += amt;
+      slot.interestCleared += amt;
+    }
+  }
+
   for (const e of loanEvents) {
+    // Payments against interest arrears clear the arrears balance first.
+    if (e.type === EVENT_TYPES.INTEREST_PAYMENT && e.arrears) {
+      const amount = Number(e.amount) || 0;
+      totals.interest += amount;
+      const take = Math.min(amount, Math.max(0, treated.arrears - arrearsPaid));
+      arrearsPaid += take;
+      if (amount - take > 0.005) unassigned.interest.push(amount - take);
+      continue;
+    }
     if (e.type === EVENT_TYPES.LOAN_WRITE_OFF) {
       writtenOff += Number(e.amount) || 0;
       continue;
@@ -211,7 +270,10 @@ export function deriveLoan(loan, events, today = todayISO()) {
   const interestPaid = round2(totals.interest);
   const lateFeesPaid = round2(totals.lateFee);
   const principalWrittenOff = round2(writtenOff);
-  const outstandingPrincipal = round2(Math.max(0, (Number(loan.principal) || 0) - principalPaid - principalWrittenOff));
+  const interestCapitalized = round2(treated.capitalized);
+  const totalPrincipal = round2((Number(loan.principal) || 0) + interestCapitalized);
+  const interestArrears = round2(Math.max(0, treated.arrears - arrearsPaid));
+  const outstandingPrincipal = round2(Math.max(0, totalPrincipal - principalPaid - principalWrittenOff));
   const isWrittenOff = principalWrittenOff > 0.5 && outstandingPrincipal <= 0.5;
 
   const grace = Number(loan.gracePeriodDays) || 0;
@@ -237,7 +299,8 @@ export function deriveLoan(loan, events, today = todayISO()) {
     return {
       ...inst,
       principalPaid: round2(paid.principal),
-      interestPaid: round2(paid.interest),
+      interestPaid: round2(paid.interest - paid.interestCleared),
+      interestCleared: round2(paid.interestCleared),
       lateFeePaid: round2(paid.lateFee),
       lateFeeDue,
       principalLeft: round2(principalLeft),
@@ -247,7 +310,8 @@ export function deriveLoan(loan, events, today = todayISO()) {
     };
   });
 
-  const fullyPaid = !isWrittenOff && outstandingPrincipal <= 0.5 && installments.every((i) => i.status === "paid");
+  const fullyPaid =
+    !isWrittenOff && outstandingPrincipal <= 0.5 && interestArrears <= 0.5 && installments.every((i) => i.status === "paid");
   const isOverdue = overduePrincipal + overdueInterest > 0.5;
 
   return {
@@ -260,8 +324,13 @@ export function deriveLoan(loan, events, today = todayISO()) {
     lateFeesDue: round2(installments.reduce((a, i) => a + i.lateFeeDue, 0)),
     principalWrittenOff,
     isWrittenOff,
+    interestCapitalized,
+    interestToArrears: round2(treated.arrears),
+    interestArrears,
+    interestWaived: round2(treated.waived),
+    totalPrincipal,
     outstandingPrincipal,
-    totalOutstanding: round2(outstandingPrincipal + overdueInterest),
+    totalOutstanding: round2(outstandingPrincipal + overdueInterest + interestArrears),
     overduePrincipal: round2(overduePrincipal),
     overdueInterest: round2(overdueInterest),
     overdueDaysMax,
@@ -277,7 +346,7 @@ export function deriveLoan(loan, events, today = todayISO()) {
             : loan.status,
     totalInterestDue: round2(schedule.reduce((a, i) => a + i.interestDue, 0)),
     totalPrincipalDue: round2(schedule.reduce((a, i) => a + i.principalDue, 0)),
-    paidRatio: (Number(loan.principal) || 0) > 0 ? clamp(principalPaid / Number(loan.principal), 0, 1) : 0,
+    paidRatio: totalPrincipal > 0 ? clamp(principalPaid / totalPrincipal, 0, 1) : 0,
   };
 }
 
@@ -552,7 +621,7 @@ function memberBalanceDelta(e) {
   }
 }
 
-export function computeYearEnd(state, yearEndDate) {
+export function computeYearEnd(state, yearEndDate, { interestActions = {} } = {}) {
   const { events, members, rules, yearEnds } = state;
   // The FY is named for the year it began; it ends the day before the same
   // date one year after it starts.
@@ -678,8 +747,63 @@ export function computeYearEnd(state, yearEndDate) {
     totalAllocated,
     allocations,
     memberWeights,
+    // Recorded with the allocation once saved; previewed until then.
+    unpaidInterest: existing?.unpaidInterest ?? unpaidInterestAtYearEnd(state, yearEndDate, interestActions),
     totalCapital,
   };
+}
+
+// Interest that fell due on or before the year-end date and is still unpaid,
+// per loan, with what each loan's "unpaid interest at year end" rule does
+// with it. Profit is cash-based, so none of this changes the year's profit;
+// it changes what the borrower owes from then on. `actions` (loanId → rule)
+// holds the choices made by hand for loans set to "manual".
+export function unpaidInterestAtYearEnd(state, yearEndDate, actions = {}) {
+  const { loans, events, rules } = state;
+  const fyYear = String(addDaysISO(addMonthsISO(yearEndDate, -12), 1).slice(0, 4));
+  // Leave out this year's own treatment entries so the list stays the same
+  // after it has been applied.
+  const asOf = events.filter((e) => e.date <= yearEndDate && !(INTEREST_TREATMENT_TYPES.includes(e.type) && e.yearEnd === fyYear));
+  const out = [];
+  for (const loan of loans) {
+    if (!loan.startDate || loan.startDate > yearEndDate) continue;
+    const d = deriveLoan(loan, asOf, yearEndDate);
+    if (d.isWrittenOff) continue;
+    const allocations = d.installments
+      .filter((i) => i.dueDate <= yearEndDate && i.interestLeft > 0.005)
+      .map((i) => ({ index: i.index, amount: i.interestLeft }));
+    const amount = round2(allocations.reduce((a, x) => a + x.amount, 0));
+    if (amount < 0.5) continue;
+    const rule = loan.unpaidInterestRule || rules?.unpaidInterestRule || UNPAID_INTEREST_RULES.CARRY_FORWARD;
+    const action =
+      rule === UNPAID_INTEREST_RULES.MANUAL ? actions[loan.id] || UNPAID_INTEREST_RULES.CARRY_FORWARD : rule;
+    out.push({ loanId: loan.id, memberId: loan.memberId, amount, rule, action, allocations });
+  }
+  return out.sort((a, b) => b.amount - a.amount);
+}
+
+// The ledger entries that apply year-end unpaid-interest treatments (carry
+// forward needs none). Non-cash; tagged with the FY so a re-save replaces them.
+export function unpaidInterestEvents(unpaid, year, yearEndDate) {
+  return unpaid
+    .filter((u) => UNPAID_INTEREST_EVENT[u.action])
+    .map((u) => ({
+      type: UNPAID_INTEREST_EVENT[u.action],
+      date: yearEndDate,
+      memberId: u.memberId,
+      loanId: u.loanId,
+      amount: u.amount,
+      allocations: u.allocations,
+      yearEnd: String(year),
+      account: "cash",
+      reference: "",
+      description:
+        u.action === UNPAID_INTEREST_RULES.CAPITALIZE
+          ? `FY ${year} unpaid interest added to principal`
+          : u.action === UNPAID_INTEREST_RULES.SEPARATE_OUTSTANDING
+            ? `FY ${year} unpaid interest moved to arrears`
+            : `FY ${year} unpaid interest waived`,
+    }));
 }
 
 // The FY (named by its start year) that contains `iso`.
