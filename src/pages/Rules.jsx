@@ -8,6 +8,7 @@ import {
   LATE_RULES,
   UNPAID_INTEREST_RULES,
   PROFIT_DISTRIBUTION,
+  DEPOSIT_LATE_FEE,
 } from "../lib/constants.js";
 
 const RATE_UNIT_OPTIONS = [
@@ -75,6 +76,59 @@ export default function Rules() {
               loans and ledger.
             </div>
           </div>
+        </Card>
+
+        <Card title="Monthly Deposits" sub="When depositors pay, and what happens if they're late" pad>
+          <div className="form-grid">
+            <Field label="Default monthly deposit (₹)" hint="Each member can have their own amount">
+              <input type="number" min="0" value={form.defaultMonthlyDeposit} onChange={set("defaultMonthlyDeposit")} />
+            </Field>
+            <Field label="Due on day" hint="Day of the month the deposit falls due">
+              <input type="number" min="1" max="31" value={form.depositDueDay} onChange={set("depositDueDay")} />
+            </Field>
+            <Field label="Deadline day" hint="Unpaid after this day = late (e.g. 15)">
+              <input type="number" min="1" max="31" value={form.depositDeadlineDay} onChange={set("depositDeadlineDay")} />
+            </Field>
+            <Field label="Late fee on deposits">
+              <select value={form.depositLateFeeType} onChange={set("depositLateFeeType")}>
+                <option value={DEPOSIT_LATE_FEE.NONE}>None, only highlight late months</option>
+                <option value={DEPOSIT_LATE_FEE.FIXED}>Fixed amount per late month</option>
+                <option value={DEPOSIT_LATE_FEE.PERCENTAGE}>Percentage of the month's deposit</option>
+              </select>
+            </Field>
+            {form.depositLateFeeType === DEPOSIT_LATE_FEE.FIXED && (
+              <Field label="Late fee per month (₹)">
+                <input type="number" min="0" value={form.depositLateFeeFixed} onChange={set("depositLateFeeFixed")} />
+              </Field>
+            )}
+            {form.depositLateFeeType === DEPOSIT_LATE_FEE.PERCENTAGE && (
+              <Field label="Late fee (% of deposit)">
+                <input type="number" min="0" step="0.1" value={form.depositLateFeePercent} onChange={set("depositLateFeePercent")} />
+              </Field>
+            )}
+          </div>
+          {Number(form.depositDeadlineDay) < Number(form.depositDueDay) && (
+            <div className="small muted" style={{ marginTop: 8 }}>
+              The deadline day is before the due day, so the deadline falls in the following month.
+            </div>
+          )}
+        </Card>
+
+        <Card title="Lending Rules" sub="Who can get a loan" pad>
+          <label className="row" style={{ gap: 10, cursor: "pointer", alignItems: "flex-start" }}>
+            <input
+              type="checkbox"
+              checked={form.requireReferral !== false}
+              onChange={(e) => setForm((f) => ({ ...f, requireReferral: e.target.checked }))}
+              style={{ marginTop: 3 }}
+            />
+            <span>
+              <b>Loans only through a member's referral</b>
+              <div className="small muted">
+                Every new loan must name an active depositing member who referred the borrower. Borrowers don't have to be members themselves.
+              </div>
+            </span>
+          </label>
         </Card>
 
         <Card title="Interest Defaults" sub="Applied when creating a new loan" pad>

@@ -46,8 +46,12 @@ const badgeTones = {
   gray: "badge-gray",
 };
 
-export function Badge({ tone = "gray", dot = false, children }) {
-  return <span className={`badge ${badgeTones[tone] || "badge-gray"} ${dot ? "badge-dot" : ""}`}>{children}</span>;
+export function Badge({ tone = "gray", dot = false, children, style }) {
+  return (
+    <span className={`badge ${badgeTones[tone] || "badge-gray"} ${dot ? "badge-dot" : ""}`} style={style}>
+      {children}
+    </span>
+  );
 }
 
 export function StatusBadge({ status }) {
@@ -60,6 +64,9 @@ export function StatusBadge({ status }) {
     defaulted: <Badge tone="red" dot>Defaulted</Badge>,
     paid: <Badge tone="green">Paid</Badge>,
     due: <Badge tone="amber">Due</Badge>,
+    paid_late: <Badge tone="amber">Paid late</Badge>,
+    late: <Badge tone="red" dot>Late</Badge>,
+    upcoming: <Badge tone="gray">Upcoming</Badge>,
     written_off: <Badge tone="gray">Written off</Badge>,
   };
   return map[status] || <Badge tone="gray">{status}</Badge>;

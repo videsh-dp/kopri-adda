@@ -45,8 +45,9 @@ The app opens pre-loaded with a **realistic demo Kopri** (7 members, 5 loans in 
 ## Features
 
 - **Dashboard** — pool assets, outstanding loans, interest received/receivable, overdue alerts, 12-month cash-flow chart, loan portfolio breakdown, recent transactions
-- **Members** — add/search members, opening contribution, full statement (every event + running derived balance)
-- **Loans** — create loans with full terms, repayment schedule table, per-installment status (paid/due/overdue with grace periods), record repayments, guarantors & security
+- **Members & borrowers** — profiles with role (depositor, borrower, or both), address, ID proof, occupation, nominee; borrowers don't have to be members; full statement (every event + running derived balance)
+- **Monthly deposits** — configurable due day and deadline (e.g. due 1st, late after 15th), per-member monthly amount, optional late fee (fixed or %), a month-by-month grid that highlights unpaid months, and pay buttons per month
+- **Loans** — every new loan must be referred by an active depositing member (rule can be switched off); create loans with full terms, a configurable late fee per loan, late fees shown as they build up, repayment schedule table, per-installment status (paid/due/overdue with grace periods), record repayments, guarantors & security
 - **Ledger** — every financial event, filterable and searchable, with running pool balance
 - **Cash & Bank** — cash vs bank balances, transfers between them
 - **Year-End** — profit waterfall (income → expenses → reserve → manager charges → distributable), profit allocation per member, save allocation (creates ledger events), settle payouts

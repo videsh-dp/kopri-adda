@@ -9,9 +9,14 @@ import {
   financialYearBounds,
   financialYearOf,
   splitPayAmount,
+  deriveDeposits,
+  depositDates,
+  depositSummary,
+  loanReferralError,
+  computeLateCharges,
 } from "../src/lib/calculations.js";
 import { DEFAULT_RULES } from "../src/lib/constants.js";
-import { rootReducer, createBook } from "../src/state/kopriStore.js";
+import { rootReducer, createBook, normalizeBook } from "../src/state/kopriStore.js";
 
 let failures = 0;
 const ok = (name, cond, detail = "") => {
@@ -166,18 +171,118 @@ const ye = (events, rules = {}, extra = {}) =>
 {
   let root = { version: 2, settings: {}, activeKopriId: "k", kopris: [{ ...createBook({ name: "T" }), id: "k" }] };
   root = rootReducer(root, { type: "ADD_MEMBER", member: { id: "a", name: "A" } });
-  root = rootReducer(root, { type: "ADD_LOAN", loan: { ...loan, id: "L9" } });
+  root = rootReducer(root, { type: "ADD_MEMBER", member: { id: "r", name: "R" } });
+  root = rootReducer(root, { type: "ADD_LOAN", loan: { ...loan, id: "L9", referredById: "r" } });
   root = rootReducer(root, { type: "ADD_EVENT", event: { type: "LOAN_DISBURSEMENT", memberId: "a", loanId: "L9", amount: 12000, date: loan.startDate } });
   root = rootReducer(root, { type: "UPDATE_LOAN", id: "L9", patch: { principal: 15000, startDate: "2025-02-01" } });
   const d = root.kopris[0].events.find((e) => e.type === "LOAN_DISBURSEMENT");
   ok("editing a loan updates its disbursement entry", d.amount === 15000 && d.date === "2025-02-01");
 
   // legacy disbursement without loanId is matched and linked
-  root = rootReducer(root, { type: "ADD_LOAN", loan: { ...loan, id: "L10", principal: 5000, startDate: "2025-03-01" } });
+  root = rootReducer(root, { type: "ADD_LOAN", loan: { ...loan, id: "L10", referredById: "r", principal: 5000, startDate: "2025-03-01" } });
   root = rootReducer(root, { type: "ADD_EVENT", event: { type: "LOAN_DISBURSEMENT", memberId: "a", amount: 5000, date: "2025-03-01" } });
   root = rootReducer(root, { type: "UPDATE_LOAN", id: "L10", patch: { principal: 6000 } });
   const legacy = root.kopris[0].events.find((e) => e.type === "LOAN_DISBURSEMENT" && e.loanId === "L10");
   ok("legacy disbursement is linked and updated", legacy && legacy.amount === 6000);
+}
+
+
+// ---------------------------------------------------------- Deposits
+{
+  const rules = { ...DEFAULT_RULES, defaultMonthlyDeposit: 1000, depositDueDay: 1, depositDeadlineDay: 15 };
+  const D = { id: "d", name: "D", status: "active", role: "depositor", joinedAt: "2025-01-10" };
+  const dep = (o) => ev({ type: "MEMBER_CONTRIBUTION", memberId: "d", ...o });
+  ok("deposit dates: due 1st, deadline 15th", JSON.stringify(depositDates("2025-02", rules)) === JSON.stringify({ dueDate: "2025-02-01", deadline: "2025-02-15" }));
+  ok("deadline before due day falls next month", depositDates("2025-01", { ...rules, depositDueDay: 25, depositDeadlineDay: 5 }).deadline === "2025-02-05");
+  ok("due day 31 clamps to February's end", depositDates("2025-02", { ...rules, depositDueDay: 31, depositDeadlineDay: 31 }).dueDate === "2025-02-28");
+
+  const events = [
+    dep({ date: "2025-01-05", amount: 50000, lumpSum: true, description: "Opening" }),
+    dep({ date: "2025-01-12", amount: 1000 }),
+    dep({ date: "2025-02-20", amount: 1000, depositMonth: "2025-02" }),
+    dep({ date: "2025-03-10", amount: 400 }),
+  ];
+  const d = deriveDeposits(D, events, rules, "2025-04-20");
+  const st = d.months.map((m) => m.status).join();
+  ok("months run from joining to today", d.months.length === 4 && d.months[0].month === "2025-01", d.months.length);
+  ok("lump sum is not counted as a monthly deposit", d.months[0].paid === 1000 && d.advance === 0, JSON.stringify(d.months[0]));
+  ok("statuses: paid, paid late, late (partial), late", st === "paid,paid_late,late,late", st);
+  ok("partial month shows what is left", d.months[2].paid === 400 && d.months[2].left === 600);
+  ok("arrears = unpaid due months", d.arrears === 1600 && d.lateMonths === 2, `${d.arrears} ${d.lateMonths}`);
+  ok("no late fee unless configured", d.lateFeesDue === 0);
+
+  const early = deriveDeposits(D, events, rules, "2025-04-10");
+  ok("current month is 'due' until the deadline", early.months[3].status === "due", early.months[3].status);
+  const beforeDue = deriveDeposits(D, events, { ...rules, depositDueDay: 12, depositDeadlineDay: 20 }, "2025-04-10");
+  ok("before the due day the month is 'upcoming'", beforeDue.months[3].status === "upcoming" && beforeDue.arrears === 600, `${beforeDue.months[3].status} ${beforeDue.arrears}`);
+
+  const fixed = deriveDeposits(D, events, { ...rules, depositLateFeeType: "fixed", depositLateFeeFixed: 50 }, "2025-04-20");
+  ok("fixed late fee per late month (incl. paid late)", fixed.lateFeesDue === 150, fixed.lateFeesDue);
+  const withFee = [...events, ev({ type: "LATE_FEE", memberId: "d", loanId: "", depositMonth: "2025-02", amount: 50, date: "2025-02-20" })];
+  const feePaid = deriveDeposits(D, withFee, { ...rules, depositLateFeeType: "fixed", depositLateFeeFixed: 50 }, "2025-04-20");
+  ok("collected deposit late fee is netted off", feePaid.lateFeesDue === 100 && feePaid.months[1].lateFeeDue === 0, feePaid.lateFeesDue);
+  const pct = deriveDeposits(D, events, { ...rules, depositLateFeeType: "percentage", depositLateFeePercent: 2 }, "2025-04-20");
+  ok("percentage late fee = 2% of the month's deposit", pct.months[2].lateFee === 20);
+
+  const extra = deriveDeposits(D, [...events, dep({ date: "2025-04-02", amount: 3000 })], rules, "2025-04-20");
+  ok("untagged deposit pays oldest unpaid month first, rest is advance", extra.months[2].status === "paid_late" && extra.months[3].status === "paid" && extra.advance === 1400, `${extra.months.map((m) => m.status)} ${extra.advance}`);
+
+  const own = deriveDeposits({ ...D, monthlyDeposit: 2500 }, events, rules, "2025-04-20");
+  ok("member's own monthly amount overrides the Kopri default (March 400 tops up January)", own.amount === 2500 && own.months[0].left === 1100);
+  const bor = deriveDeposits({ ...D, role: "borrower" }, events, rules, "2025-04-20");
+  ok("borrowers have no deposit schedule", bor.months.length === 0);
+  const gone = deriveDeposits({ ...D, status: "inactive", inactiveSince: "2025-02-28" }, events, rules, "2025-04-20");
+  ok("inactive member's schedule stops when they left", gone.months.length === 2, gone.months.length);
+
+  const sum = depositSummary({ members: [D, { ...D, id: "e", name: "E" }], events, rules }, "2025-03", "2025-04-20");
+  ok("summary: expected, collected and unpaid for a month", sum.expected === 2000 && sum.collected === 400 && sum.unpaid.length === 2, JSON.stringify([sum.expected, sum.collected, sum.unpaid.length]));
+}
+
+// ---------------------------------------------------------- Referral rule
+{
+  const R = { id: "r", name: "R", status: "active", role: "depositor" };
+  const X = { id: "x", name: "X", status: "active", role: "borrower" };
+  const members = [R, X, { id: "i", name: "I", status: "inactive" }];
+  ok("loan without referral is refused", loanReferralError({ memberId: "x" }, members) !== "");
+  ok("non-member borrower referred by a depositor is fine", loanReferralError({ memberId: "x", referredById: "r" }, members) === "");
+  ok("borrower can't refer themselves", loanReferralError({ memberId: "r", referredById: "r" }, members) !== "");
+  ok("borrower-only person can't refer", loanReferralError({ memberId: "r", referredById: "x" }, members) !== "");
+  ok("inactive member can't refer", loanReferralError({ memberId: "x", referredById: "i" }, members) !== "");
+  ok("rule can be switched off", loanReferralError({ memberId: "x" }, members, { requireReferral: false }) === "");
+
+  let root = { version: 2, settings: {}, activeKopriId: "k", kopris: [{ ...createBook({ name: "T" }), id: "k" }] };
+  root = rootReducer(root, { type: "ADD_MEMBER", member: { id: "r", name: "R" } });
+  root = rootReducer(root, { type: "ADD_MEMBER", member: { id: "x", name: "X", role: "borrower" } });
+  root = rootReducer(root, { type: "ADD_LOAN", loan: { ...loan, id: "NOPE", memberId: "x" }, disbursement: {} });
+  ok("store refuses a loan without referral (and books no cash)", root.kopris[0].loans.length === 0 && root.kopris[0].events.length === 0);
+  root = rootReducer(root, { type: "ADD_LOAN", loan: { ...loan, id: "YES", memberId: "x", referredById: "r" }, disbursement: { account: "bank" } });
+  const k = root.kopris[0];
+  const dis = k.events.find((e) => e.type === "LOAN_DISBURSEMENT");
+  ok("referred loan is added with its disbursement", k.loans.length === 1 && dis && dis.loanId === "YES" && dis.amount === 12000 && dis.account === "bank");
+  ok("new loan carries the Kopri's late-fee amounts", k.loans[0].lateFixedPenalty === DEFAULT_RULES.lateFixedPenalty);
+  root = rootReducer(root, { type: "ADD_MEMBER", member: { id: "o", name: "O" }, openingContribution: 5000 });
+  ok("opening contribution is a lump sum, not a monthly deposit", root.kopris[0].events.some((e) => e.memberId === "o" && e.lumpSum));
+  root = rootReducer(root, { type: "UPDATE_MEMBER", id: "o", patch: { status: "inactive" } });
+  ok("marking inactive records when", !!root.kopris[0].members.find((m) => m.id === "o").inactiveSince);
+}
+
+// --------------------------------------------- Late fees building up on loans
+{
+  const L = { ...loan, lateRule: "fixed_penalty", lateFixedPenalty: 100 };
+  const v = deriveLoan(L, [], "2025-04-01");
+  // Feb 15, Mar 15 installments are past grace on Apr 1; the Apr 15 one isn't due yet.
+  ok("fixed penalty accrues on each overdue installment", v.lateFeesDue === 200 && v.installments[0].lateFeeDue === 100, v.lateFeesDue);
+  const paidFee = deriveLoan(L, [ev({ type: "LATE_FEE", loanId: "L1", amount: 100, installmentIndex: 0, date: "2025-03-30" })], "2025-04-01");
+  ok("late fee already collected is netted off", paidFee.lateFeesDue === 100, paidFee.lateFeesDue);
+  const pctLoan = deriveLoan({ ...loan, lateRule: "percentage_penalty", latePercentagePenalty: 2 }, [], "2025-03-01");
+  ok("percentage penalty = 2% of overdue principal + interest", near(pctLoan.lateFeesDue, (1000 + 240) * 0.02), pctLoan.lateFeesDue);
+  const ni = deriveLoan(loan, [], "2025-03-01");
+  const expect = computeLateCharges(loan, ni.schedule[0], 1000, 240, "2025-03-01").total;
+  ok("normal-interest late charge matches the pay screen", near(ni.lateFeesDue, expect) && expect > 0, `${ni.lateFeesDue} vs ${expect}`);
+  ok("no late fees on a loan that is on time", deriveLoan(L, [], "2025-02-18").lateFeesDue === 0);
+
+  const old = normalizeBook({ rules: { lateFixedPenalty: 75 }, loans: [{ id: "z" }], members: [], events: [] });
+  ok("old books get new rules and loan late-fee amounts", old.rules.depositDeadlineDay === 15 && old.loans[0].lateFixedPenalty === 75);
 }
 
 function round(x) {

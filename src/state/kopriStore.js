@@ -18,6 +18,7 @@
 import { DEFAULT_RULES } from "../lib/constants.js";
 import { uid, todayISO } from "../lib/format.js";
 import { buildDemoState } from "../lib/demoData.js";
+import { loanReferralError } from "../lib/calculations.js";
 
 export const ROOT_VERSION = 2;
 export const DEFAULT_KOPRI_NAME = "My Kopri";
@@ -30,7 +31,7 @@ export function createBook({ name = DEFAULT_KOPRI_NAME, template = "empty" } = {
   const base = { id: uid("k"), name, createdAt: todayISO() };
   if (template === "demo") {
     const demo = buildDemoState(name);
-    return { ...base, ...demo };
+    return normalizeBook({ ...base, ...demo });
   }
   const rules = { ...DEFAULT_RULES, kopriName: name };
   return { ...base, rules, members: [], loans: [], events: [], yearEnds: [] };
@@ -38,7 +39,7 @@ export function createBook({ name = DEFAULT_KOPRI_NAME, template = "empty" } = {
 
 export function demoBook(name = "Sunrise Kopri") {
   const demo = buildDemoState(name);
-  return { id: uid("k"), name, createdAt: todayISO(), ...demo };
+  return normalizeBook({ id: uid("k"), name, createdAt: todayISO(), ...demo });
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ export function migrateRoot(raw) {
 
 export function sanitizeRoot(root) {
   if (!root || !Array.isArray(root.kopris) || root.kopris.length === 0) return null;
-  const kopris = root.kopris.map((b) => ({ ...b, name: b.name || b.rules?.kopriName || DEFAULT_KOPRI_NAME }));
+  const kopris = root.kopris.map((b) => normalizeBook({ ...b, name: b.name || b.rules?.kopriName || DEFAULT_KOPRI_NAME }));
   const activeKopriId = kopris.some((k) => k.id === root.activeKopriId) ? root.activeKopriId : kopris[0].id;
   return {
     version: ROOT_VERSION,
@@ -86,6 +87,23 @@ export function sanitizeRoot(root) {
     activeKopriId,
     kopris,
   };
+}
+
+// Fill in rules added in later versions, and give loans saved before late
+// fees lived on the loan the Kopri's late-fee amounts.
+const LOAN_LATE_FIELDS = ["lateAdditionalInterestRate", "lateFixedPenalty", "latePercentagePenalty"];
+
+export function loanLateDefaults(rules) {
+  return Object.fromEntries(LOAN_LATE_FIELDS.map((k) => [k, Number(rules?.[k] ?? DEFAULT_RULES[k])]));
+}
+
+export function normalizeBook(book) {
+  const rules = { ...DEFAULT_RULES, ...(book.rules || {}) };
+  const late = loanLateDefaults(rules);
+  const loans = (book.loans || []).map((l) =>
+    LOAN_LATE_FIELDS.every((k) => l[k] !== undefined) ? l : { ...late, ...l }
+  );
+  return { ...book, rules, loans };
 }
 
 export function seedRoot() {
@@ -100,7 +118,7 @@ export function seedRoot() {
 function bookReducer(book, action) {
   switch (action.type) {
     case "ADD_MEMBER": {
-      const member = { id: uid("m"), joinedAt: todayISO(), status: "active", notes: "", phone: "", email: "", ...action.member };
+      const member = { id: uid("m"), joinedAt: todayISO(), status: "active", role: "depositor", notes: "", phone: "", email: "", ...action.member };
       let events = book.events;
       const opening = Number(action.openingContribution) || 0;
       if (opening > 0) {
@@ -115,6 +133,7 @@ function bookReducer(book, action) {
             account: "cash",
             reference: "",
             description: "Opening contribution",
+            lumpSum: true,
             createdAt: new Date().toISOString(),
           },
         ];
@@ -122,8 +141,16 @@ function bookReducer(book, action) {
       return { ...book, members: [...book.members, member], events };
     }
 
-    case "UPDATE_MEMBER":
-      return { ...book, members: book.members.map((m) => (m.id === action.id ? { ...m, ...action.patch } : m)) };
+    case "UPDATE_MEMBER": {
+      const update = (m) => {
+        const next = { ...m, ...action.patch };
+        // Remember when a member stopped, so their deposit schedule ends there.
+        if (next.status === "inactive" && m.status !== "inactive" && !next.inactiveSince) next.inactiveSince = todayISO();
+        if (next.status === "active") delete next.inactiveSince;
+        return next;
+      };
+      return { ...book, members: book.members.map((m) => (m.id === action.id ? update(m) : m)) };
+    }
 
     case "DELETE_MEMBER": {
       const hasHistory = book.events.some((e) => e.memberId === action.id);
@@ -132,8 +159,40 @@ function bookReducer(book, action) {
     }
 
     case "ADD_LOAN": {
-      const loan = { id: uid("l"), status: "active", guarantorIds: [], security: "", notes: "", gracePeriodDays: 5, ...action.loan };
-      return { ...book, loans: [...book.loans, loan] };
+      const loan = {
+        id: uid("l"),
+        status: "active",
+        guarantorIds: [],
+        referredById: "",
+        security: "",
+        notes: "",
+        gracePeriodDays: 5,
+        ...loanLateDefaults(book.rules),
+        ...action.loan,
+      };
+      // Kopri rule: no loan without a member's referral.
+      if (loanReferralError(loan, book.members, book.rules)) return book;
+      // The disbursement is booked together with the loan, so a refused loan
+      // never leaves cash going out in the ledger.
+      const events = action.disbursement
+        ? [
+            ...book.events,
+            {
+              id: uid("ev"),
+              date: loan.startDate || todayISO(),
+              account: "cash",
+              reference: "",
+              description: "Loan disbursement",
+              createdAt: new Date().toISOString(),
+              ...action.disbursement,
+              type: "LOAN_DISBURSEMENT",
+              memberId: loan.memberId,
+              loanId: loan.id,
+              amount: Number(loan.principal),
+            },
+          ]
+        : book.events;
+      return { ...book, loans: [...book.loans, loan], events };
     }
 
     case "UPDATE_LOAN": {
@@ -278,7 +337,7 @@ export function rootReducer(root, action) {
         kopris: root.kopris.map((k) => {
           if (k.id !== action.id) return k;
           const demo = buildDemoState(k.name);
-          return { id: k.id, name: k.name, createdAt: k.createdAt, ...demo };
+          return normalizeBook({ id: k.id, name: k.name, createdAt: k.createdAt, ...demo });
         }),
       };
     }

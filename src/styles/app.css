@@ -1265,3 +1265,42 @@ table.data tbody tr:last-child td {
   flex-direction: column;
   gap: 2px;
 }
+
+/* ---------------------------------------------------------- Deposit grid */
+.deposit-grid td, .deposit-grid th { padding-left: 4px; padding-right: 4px; }
+.deposit-grid th.dg-now { color: var(--primary-text); }
+.dg-cell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  font-style: normal;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dg-paid { background: var(--green-soft); color: var(--green); }
+.dg-paid_late { background: var(--amber-soft); color: var(--amber); }
+.dg-due { background: var(--amber-soft); color: var(--amber); border-color: var(--amber); }
+.dg-late { background: var(--red-soft); color: var(--red); border-color: var(--red); }
+.dg-upcoming { background: var(--bg-soft); color: var(--text-faint); }
+.dg-fee {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--violet);
+}
+.dg-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 14px; }
+.dg-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dg-legend .dg-cell { cursor: default; min-width: 24px; height: 20px; }
+tr.row-late td { background: var(--red-soft); }

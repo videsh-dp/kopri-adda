@@ -9,8 +9,21 @@ import {
   UNPAID_INTEREST_RULES,
   ACCOUNTS,
   EVENT_TYPES,
+  MEMBER_ROLES,
+  MEMBER_ROLE_LABELS,
 } from "../lib/constants.js";
-import { buildSchedule, computeLateCharges, splitPayAmount } from "../lib/calculations.js";
+import {
+  buildSchedule,
+  computeLateCharges,
+  splitPayAmount,
+  memberRole,
+  monthlyDepositOf,
+  isDepositor,
+  eligibleReferrers,
+  loanReferralError,
+  deriveDeposits,
+  addMonthsYM,
+} from "../lib/calculations.js";
 import { todayISO, formatINR, formatDate, formatNumber, round2, uid } from "../lib/format.js";
 
 const rupee = (n) => formatINR(n, { precise: true });
@@ -179,6 +192,9 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
         value={rupee(installmentTotal)}
         strong
       />
+      {late?.alreadyCollected > 0.005 && (
+        <CalcRow label="Late charges already collected on this installment" value={`− ${rupee(late.alreadyCollected)}`} />
+      )}
       {lateTotal > 0.005 && (
         <CalcRow
           label="Plus late charges (separate ledger entry)"
@@ -210,40 +226,101 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
 }
 
 // ------------------------------------------------------------ MemberForm
-export function MemberFormModal({ open, onClose }) {
-  const { addMember } = useKopri();
-  const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "" });
+// Adds or edits a person's profile. Depositors pay a monthly deposit and share
+// profit; borrowers only take loans (and need a member's referral).
+function blankMember(rules, role) {
+  return {
+    name: "",
+    role,
+    phone: "",
+    email: "",
+    address: "",
+    idProof: "",
+    occupation: "",
+    nominee: "",
+    monthlyDeposit: String(rules?.defaultMonthlyDeposit ?? 5000),
+    depositStartMonth: todayISO().slice(0, 7),
+    joinedAt: todayISO(),
+    status: "active",
+    notes: "",
+  };
+}
+
+export function MemberFormModal({ open, onClose, editMember = null, defaultRole = MEMBER_ROLES.DEPOSITOR, onCreated }) {
+  const { state, addMember, updateMember } = useKopri();
+  const makeForm = () =>
+    editMember
+      ? {
+          ...blankMember(state.rules, memberRole(editMember)),
+          ...editMember,
+          role: memberRole(editMember),
+          monthlyDeposit: String(monthlyDepositOf(editMember, state.rules)),
+          depositStartMonth: editMember.depositStartMonth || (editMember.joinedAt || todayISO()).slice(0, 7),
+        }
+      : blankMember(state.rules, defaultRole);
+  const [form, setForm] = useState(makeForm);
   const [initialContribution, setInitialContribution] = useState("0");
 
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setForm(makeForm());
+      setInitialContribution("0");
+    }
+    wasOpen.current = open;
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const valid = form.name.trim().length > 0;
+  const deposits = form.role !== MEMBER_ROLES.BORROWER;
+  const valid = form.name.trim().length > 0 && (!deposits || Number(form.monthlyDeposit) >= 0);
 
   const submit = () => {
     if (!valid) return;
-    const amt = Number(initialContribution) || 0;
-    addMember({ ...form, name: form.name.trim() }, amt);
+    const profile = {
+      ...form,
+      name: form.name.trim(),
+      monthlyDeposit: deposits ? Number(form.monthlyDeposit) || 0 : 0,
+      depositStartMonth: deposits ? form.depositStartMonth : "",
+    };
+    if (editMember) {
+      updateMember(editMember.id, profile);
+    } else {
+      const id = uid("m");
+      addMember({ ...profile, id }, deposits ? Number(initialContribution) || 0 : 0);
+      onCreated?.(id);
+    }
     onClose();
-    setForm({ name: "", phone: "", email: "", notes: "" });
-    setInitialContribution("0");
   };
+
+  const title = editMember ? "Edit Profile" : form.role === MEMBER_ROLES.BORROWER ? "Add Borrower" : "Add Member";
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Add Member"
+      title={title}
+      wide
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={submit} disabled={!valid}>
-            Add member
+            {editMember ? "Save profile" : form.role === MEMBER_ROLES.BORROWER ? "Add borrower" : "Add member"}
           </Button>
         </>
       }
     >
       <div className="form-grid">
-        <Field label="Full name" className="grow" style={{ gridColumn: "1 / -1" }}>
+        <Field label="Full name" className="grow">
           <TextInput value={form.name} onChange={set("name")} placeholder="e.g. Anita Fernandes" autoFocus />
+        </Field>
+        <Field label="Role" hint={deposits ? "Pays a monthly deposit and shares year-end profit" : "Takes loans only, must be referred by a member"}>
+          <select value={form.role} onChange={set("role")}>
+            {Object.entries(MEMBER_ROLE_LABELS).map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
+          </select>
         </Field>
         <Field label="Phone">
           <TextInput value={form.phone} onChange={set("phone")} placeholder="98220 12345" />
@@ -251,9 +328,45 @@ export function MemberFormModal({ open, onClose }) {
         <Field label="Email">
           <TextInput value={form.email} onChange={set("email")} placeholder="name@example.com" />
         </Field>
-        <Field label="Opening contribution (₹)" hint="Optional — records a MEMBER_CONTRIBUTION event">
-          <NumberInput value={initialContribution} onChange={(e) => setInitialContribution(e.target.value)} min="0" />
+        <Field label="Address" className="grow" style={{ gridColumn: "1 / -1" }}>
+          <TextInput value={form.address} onChange={set("address")} placeholder="House, village / town, taluka" />
         </Field>
+        <Field label="ID proof" hint="e.g. Aadhaar or PAN number">
+          <TextInput value={form.idProof} onChange={set("idProof")} placeholder="Aadhaar XXXX 1234" />
+        </Field>
+        <Field label="Occupation">
+          <TextInput value={form.occupation} onChange={set("occupation")} placeholder="e.g. Shop owner" />
+        </Field>
+        <Field label="Joined on">
+          <input type="date" value={form.joinedAt} onChange={set("joinedAt")} />
+        </Field>
+        {editMember && (
+          <Field label="Status">
+            <select value={form.status} onChange={set("status")}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </Field>
+        )}
+
+        {deposits && (
+          <>
+            <Field label="Monthly deposit (₹)" hint={`Due on day ${state.rules.depositDueDay}, late after day ${state.rules.depositDeadlineDay}`}>
+              <NumberInput value={form.monthlyDeposit} onChange={set("monthlyDeposit")} min="0" />
+            </Field>
+            <Field label="Deposits start from" hint="First month a deposit is due">
+              <input type="month" value={form.depositStartMonth} onChange={set("depositStartMonth")} />
+            </Field>
+            <Field label="Nominee">
+              <TextInput value={form.nominee} onChange={set("nominee")} placeholder="Name and relation" />
+            </Field>
+            {!editMember && (
+              <Field label="Opening deposit (₹)" hint="Optional one-off amount, not counted as a monthly deposit">
+                <NumberInput value={initialContribution} onChange={(e) => setInitialContribution(e.target.value)} min="0" />
+              </Field>
+            )}
+          </>
+        )}
         <Field label="Notes" className="grow" style={{ gridColumn: "1 / -1" }}>
           <TextInput value={form.notes} onChange={set("notes")} placeholder="Anything worth remembering" />
         </Field>
@@ -264,7 +377,7 @@ export function MemberFormModal({ open, onClose }) {
 
 // -------------------------------------------------------------- LoanForm
 export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId = "" }) {
-  const { state, addLoan, updateLoan, addEvent } = useKopri();
+  const { state, addLoan, updateLoan } = useKopri();
   const rules = state.rules;
   const [form, setForm] = useState(() =>
     editLoan
@@ -282,11 +395,21 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
           gracePeriodDays: String(rules.gracePeriodDays ?? 5),
           lateRule: rules.lateRule || LATE_RULES.NORMAL_INTEREST,
           unpaidInterestRule: rules.unpaidInterestRule || UNPAID_INTEREST_RULES.CARRY_FORWARD,
+          lateAdditionalInterestRate: String(rules.lateAdditionalInterestRate ?? 1),
+          lateFixedPenalty: String(rules.lateFixedPenalty ?? 100),
+          latePercentagePenalty: String(rules.latePercentagePenalty ?? 2),
+          referredById: "",
           security: "",
           notes: "",
           guarantorIds: [],
         }
   );
+  const [showNewBorrower, setShowNewBorrower] = useState(false);
+  const people = state.members.filter((m) => m.status === "active" || m.id === form.memberId);
+  const referrers = eligibleReferrers(state.members, form.memberId);
+  // Editing a loan made before the rule existed shouldn't force a referral.
+  const referralNeeded = state.rules.requireReferral !== false && !(editLoan && !editLoan.referredById);
+  const referralError = form.memberId && referralNeeded ? loanReferralError(form, state.members, state.rules) : "";
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -306,7 +429,7 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
   const customTotal = round2(customRows.reduce((a, v) => a + (Number(v) || 0), 0));
   const customOk = !isCustom || (customRows.length === tenure && Math.abs(customTotal - (Number(form.principal) || 0)) < 1);
 
-  const valid = form.memberId && Number(form.principal) > 0 && Number(form.tenureMonths) > 0 && customOk;
+  const valid = form.memberId && Number(form.principal) > 0 && Number(form.tenureMonths) > 0 && customOk && !referralError;
 
   const submit = () => {
     if (!valid) return;
@@ -323,6 +446,10 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
       gracePeriodDays: Number(form.gracePeriodDays) || 0,
       lateRule: form.lateRule,
       unpaidInterestRule: form.unpaidInterestRule,
+      lateAdditionalInterestRate: Number(form.lateAdditionalInterestRate) || 0,
+      lateFixedPenalty: Number(form.lateFixedPenalty) || 0,
+      latePercentagePenalty: Number(form.latePercentagePenalty) || 0,
+      referredById: form.referredById || "",
       security: form.security,
       notes: form.notes,
       guarantorIds: Array.isArray(form.guarantorIds) ? form.guarantorIds : [],
@@ -331,18 +458,8 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
     if (editLoan) {
       updateLoan(editLoan.id, payload);
     } else {
-      const loanId = uid("l");
-      addLoan({ ...payload, id: loanId });
-      // create the disbursement event in the ledger
-      addEvent({
-        type: EVENT_TYPES.LOAN_DISBURSEMENT,
-        memberId: form.memberId,
-        loanId,
-        amount: Number(form.principal),
-        account: "cash",
-        date: form.startDate,
-        description: "Loan disbursement",
-      });
+      // The loan and its disbursement are booked together.
+      addLoan({ ...payload, id: uid("l") }, { account: "cash", date: form.startDate, description: "Loan disbursement" });
     }
     onClose();
   };
@@ -364,9 +481,31 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
     >
       <div className="form-grid">
         <Field label="Borrower" className="grow">
-          <select value={form.memberId} onChange={set("memberId")}>
+          <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+            <select value={form.memberId} onChange={set("memberId")} style={{ flex: 1, minWidth: 0 }}>
+              <option value="">Select borrower…</option>
+              {people.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                  {isDepositor(m) ? "" : " (borrower)"}
+                </option>
+              ))}
+            </select>
+            {!editLoan && (
+              <Button type="button" size="sm" onClick={() => setShowNewBorrower(true)} title="Add a new borrower profile">
+                + New
+              </Button>
+            )}
+          </div>
+        </Field>
+        <Field
+          label={referralNeeded ? "Referred by (member)" : "Referred by (optional)"}
+          className="grow"
+          hint={referralError && form.memberId ? referralError : "An active depositing member who vouches for the borrower"}
+        >
+          <select value={form.referredById || ""} onChange={set("referredById")}>
             <option value="">Select member…</option>
-            {state.members.map((m) => (
+            {referrers.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
               </option>
@@ -453,6 +592,21 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
             <option value={LATE_RULES.PERCENTAGE_PENALTY}>Percentage penalty</option>
           </select>
         </Field>
+        {form.lateRule === LATE_RULES.ADDITIONAL_INTEREST && (
+          <Field label="Additional late interest (% / month)">
+            <NumberInput value={form.lateAdditionalInterestRate} onChange={set("lateAdditionalInterestRate")} min="0" step="0.1" />
+          </Field>
+        )}
+        {form.lateRule === LATE_RULES.FIXED_PENALTY && (
+          <Field label="Late fee per overdue installment (₹)">
+            <NumberInput value={form.lateFixedPenalty} onChange={set("lateFixedPenalty")} min="0" />
+          </Field>
+        )}
+        {form.lateRule === LATE_RULES.PERCENTAGE_PENALTY && (
+          <Field label="Late fee (% of overdue amount)">
+            <NumberInput value={form.latePercentagePenalty} onChange={set("latePercentagePenalty")} min="0" step="0.1" />
+          </Field>
+        )}
         <Field label="Unpaid interest at year end">
           <select value={form.unpaidInterestRule} onChange={set("unpaidInterestRule")}>
             <option value={UNPAID_INTEREST_RULES.CARRY_FORWARD}>Carry forward</option>
@@ -474,7 +628,7 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
             }
           >
             {state.members
-              .filter((m) => m.id !== form.memberId)
+              .filter((m) => m.id !== form.memberId && m.status === "active")
               .map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
@@ -489,11 +643,29 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
           <TextInput value={form.notes} onChange={set("notes")} placeholder="Purpose, terms, anything" />
         </Field>
       </div>
+      <MemberFormModal
+        open={showNewBorrower}
+        onClose={() => setShowNewBorrower(false)}
+        defaultRole={MEMBER_ROLES.BORROWER}
+        onCreated={(id) => setForm((f) => ({ ...f, memberId: id }))}
+      />
     </Modal>
   );
 }
 
 // ------------------------------------------------------------ EventForm
+
+// How a contribution counts toward the monthly deposit schedule:
+// "auto" = oldest unpaid month, "lump" = one-off (not monthly), or "YYYY-MM".
+function depositForOf(e) {
+  if (e?.depositMonth) return e.depositMonth;
+  return e?.lumpSum ? "lump" : "auto";
+}
+
+const monthName = (ym) => {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+};
 
 export function EventFormModal({ open, onClose, preset = {}, editEvent = null, onDelete = null }) {
   const { state, addEvent, updateEvent } = useKopri();
@@ -502,7 +674,7 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
     if (editEvent) {
       // Edit mode: load the event verbatim so payment events keep their
       // installmentIndex / member / loan tagging while being edited.
-      return { ...editEvent, amount: String(editEvent.amount ?? "") };
+      return { ...editEvent, amount: String(editEvent.amount ?? ""), depositFor: depositForOf(editEvent) };
     }
     return {
       type: EVENT_TYPES.CONTRIBUTION,
@@ -516,6 +688,7 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
       from: ACCOUNTS.CASH,
       to: ACCOUNTS.BANK,
       ...preset,
+      depositFor: depositForOf(preset),
     };
   }
 
@@ -555,9 +728,10 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
       if (ev.loanId !== form.loanId) continue;
       const idx = ev.installmentIndex;
       if (idx === undefined || idx === null) continue;
-      arr[idx] = arr[idx] || { principal: 0, interest: 0 };
+      arr[idx] = arr[idx] || { principal: 0, interest: 0, lateFee: 0 };
       if (ev.type === EVENT_TYPES.PRINCIPAL_PAYMENT) arr[idx].principal += Number(ev.amount) || 0;
       else if (ev.type === EVENT_TYPES.INTEREST_PAYMENT) arr[idx].interest += Number(ev.amount) || 0;
+      else if (ev.type === EVENT_TYPES.LATE_FEE) arr[idx].lateFee += Number(ev.amount) || 0;
     }
     return arr;
   }, [isQuickPay, form.loanId, state.events]);
@@ -571,11 +745,14 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
     };
   }, [installment, paidByInstallment]);
 
-  // Late-payment charges on this installment as of the payment date.
-  const late = useMemo(
-    () => (isQuickPay && installment ? computeLateCharges(loan, installment, instLeft.principal, instLeft.interest, form.date) : null),
-    [isQuickPay, installment, loan, instLeft.principal, instLeft.interest, form.date]
-  );
+  // Late-payment charges on this installment as of the payment date, less any
+  // late fee already collected on it (e.g. with an earlier part-payment).
+  const late = useMemo(() => {
+    if (!isQuickPay || !installment) return null;
+    const c = computeLateCharges(loan, installment, instLeft.principal, instLeft.interest, form.date);
+    const already = round2(paidByInstallment[installment.index]?.lateFee || 0);
+    return { ...c, alreadyCollected: already, total: round2(Math.max(0, c.total - already)) };
+  }, [isQuickPay, installment, loan, instLeft.principal, instLeft.interest, form.date, paidByInstallment]);
 
   // In "Principal + interest" mode, show how the entered amount splits.
   const split = useMemo(
@@ -583,8 +760,27 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
     [isQuickPay, payMode, installment, form.amount, instLeft.principal, instLeft.interest]
   );
 
-  const needsMember = [EVENT_TYPES.CONTRIBUTION, EVENT_TYPES.WITHDRAWAL].includes(form.type);
-  const isLoanPayment = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE, EVENT_TYPES.LOAN_WRITE_OFF].includes(form.type);
+  // A late fee on a monthly deposit (not on a loan) is tagged with its month.
+  const isDepositFee = form.type === EVENT_TYPES.LATE_FEE && !!form.depositMonth && !form.loanId;
+  const isContribution = form.type === EVENT_TYPES.CONTRIBUTION;
+  const needsMember = [EVENT_TYPES.CONTRIBUTION, EVENT_TYPES.WITHDRAWAL].includes(form.type) || isDepositFee;
+  const isLoanPayment =
+    !isDepositFee && [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE, EVENT_TYPES.LOAN_WRITE_OFF].includes(form.type);
+
+  // Months the contribution can be put toward: the member's schedule so far
+  // plus the next two months (advance deposits).
+  const depositMember = isContribution ? state.members.find((m) => m.id === form.memberId) : null;
+  const depositMonths = useMemo(() => {
+    if (!depositMember || !isDepositor(depositMember)) return [];
+    const d = deriveDeposits(depositMember, state.events, state.rules);
+    const rows = d.months.slice(-12).map((m) => ({ month: m.month, left: m.left, status: m.status }));
+    const last = rows.length ? rows[rows.length - 1].month : todayISO().slice(0, 7);
+    for (let i = 1; i <= 2; i++) rows.push({ month: addMonthsYM(last, i), left: d.amount, status: "upcoming" });
+    if (form.depositFor && /^\d{4}-\d{2}$/.test(form.depositFor) && !rows.some((r) => r.month === form.depositFor)) {
+      rows.unshift({ month: form.depositFor, left: 0, status: "" });
+    }
+    return rows.reverse();
+  }, [depositMember, state.events, state.rules, form.depositFor]);
   const isTransfer = form.type === EVENT_TYPES.TRANSFER;
   const isAdjustment = form.type === EVENT_TYPES.ADJUSTMENT;
 
@@ -655,6 +851,12 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
       loanId: isLoanPayment ? form.loanId : "",
       description: form.description || (isTransfer ? "Transfer" : ""),
     };
+    if (isContribution) {
+      base.lumpSum = form.depositFor === "lump";
+      base.depositMonth = /^\d{4}-\d{2}$/.test(form.depositFor || "") ? form.depositFor : "";
+    } else if (isDepositFee) {
+      base.depositMonth = form.depositMonth;
+    }
     const payload = isTransfer
       ? { ...base, type: EVENT_TYPES.TRANSFER, from: form.from, to: form.to }
       : isAdjustment
@@ -687,7 +889,15 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
     <Modal
       open={open}
       onClose={onClose}
-      title={editEvent ? "Edit Transaction" : isQuickPay ? "Record Installment Payment" : "Record Transaction"}
+      title={
+        editEvent
+          ? "Edit Transaction"
+          : isQuickPay
+            ? "Record Installment Payment"
+            : isDepositFee
+              ? `Deposit Late Fee · ${monthName(form.depositMonth)}`
+              : "Record Transaction"
+      }
       footer={
         <>
           {editEvent && onDelete && (
@@ -812,6 +1022,21 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
                   {m.name}
                 </option>
               ))}
+            </select>
+          </Field>
+        )}
+
+        {isContribution && depositMonths.length > 0 && (
+          <Field label="Counts as" hint="Which monthly deposit this pays">
+            <select value={form.depositFor} onChange={set("depositFor")}>
+              <option value="auto">Monthly deposit, oldest unpaid month first</option>
+              {depositMonths.map((m) => (
+                <option key={m.month} value={m.month}>
+                  {monthName(m.month)}
+                  {m.left > 0.5 && m.status !== "upcoming" ? ` (${formatINR(m.left)} left)` : m.status === "paid" || m.status === "paid_late" ? " (paid)" : ""}
+                </option>
+              ))}
+              <option value="lump">One-off / lump sum (not a monthly deposit)</option>
             </select>
           </Field>
         )}

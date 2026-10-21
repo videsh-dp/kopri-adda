@@ -10,7 +10,7 @@ const ok = (name, cond) => {
 
 // 1. seed -> one demo kopri
 let root = seedRoot();
-ok("seeded with one demo Kopri", root.kopris.length === 1 && activeBook(root).members.length === 7);
+ok("seeded with one demo Kopri", root.kopris.length === 1 && activeBook(root).members.length === 8);
 
 // 2. add a second (empty) Kopri -> becomes active
 root = rootReducer(root, { type: "ADD_KOPRI", name: "Mapusa Welfare Kopri", template: "empty" });
@@ -23,7 +23,7 @@ ok("member + contribution event added to active book", activeBook(root).members.
 // 4. switch back to demo Kopri -> data is isolated
 const demoId = root.kopris.find((k) => k.name === "Sunrise Kopri").id;
 root = rootReducer(root, { type: "SET_ACTIVE_KOPRI", id: demoId });
-ok("switching back isolates data (7 demo members, no Test Member)", activeBook(root).members.length === 7 && !activeBook(root).members.some((m) => m.name === "Test Member"));
+ok("switching back isolates data (8 demo members, no Test Member)", activeBook(root).members.length === 8 && !activeBook(root).members.some((m) => m.name === "Test Member"));
 ok("other book keeps its own member", root.kopris.find((k) => k.name === "Mapusa Welfare Kopri").members.length === 1);
 
 // 5. rename syncs name + rules.kopriName

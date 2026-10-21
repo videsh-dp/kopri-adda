@@ -33,7 +33,8 @@ await sleep(700);
 
 const expectations = [
   ["/", "Total Pool Assets"],
-  ["/members", "Members & Depositors"],
+  ["/members", "Members & Borrowers"],
+  ["/deposits", "Monthly Deposits"],
   ["/loans", "Create loan"],
   ["/ledger", "Unified Ledger"],
   ["/cash-bank", "Cash & Bank"],

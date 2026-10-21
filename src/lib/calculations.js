@@ -17,6 +17,9 @@ import {
   EXPENSE_EVENT_TYPES,
   PROFIT_DISTRIBUTION,
   ACCOUNTS,
+  MEMBER_ROLES,
+  DEPOSIT_LATE_FEE,
+  DEFAULT_RULES,
 } from "./constants.js";
 import { addMonthsISO, addDaysISO, daysBetween, todayISO, round2, monthsBetween, clamp } from "./format.js";
 
@@ -227,11 +230,16 @@ export function deriveLoan(loan, events, today = todayISO()) {
       overdueInterest += interestLeft;
       overdueDaysMax = Math.max(overdueDaysMax, due);
     }
+    // Late charges built up so far on what is still unpaid, less any late
+    // fee already collected on this installment.
+    const lateCharges = overdue ? computeLateCharges(loan, inst, principalLeft, interestLeft, today).total : 0;
+    const lateFeeDue = round2(Math.max(0, lateCharges - paid.lateFee));
     return {
       ...inst,
       principalPaid: round2(paid.principal),
       interestPaid: round2(paid.interest),
       lateFeePaid: round2(paid.lateFee),
+      lateFeeDue,
       principalLeft: round2(principalLeft),
       interestLeft: round2(interestLeft),
       status: principalLeft + interestLeft <= 0.5 ? "paid" : isWrittenOff ? "written_off" : overdue ? "overdue" : "due",
@@ -249,6 +257,7 @@ export function deriveLoan(loan, events, today = todayISO()) {
     principalPaid,
     interestPaid,
     lateFeesPaid,
+    lateFeesDue: round2(installments.reduce((a, i) => a + i.lateFeeDue, 0)),
     principalWrittenOff,
     isWrittenOff,
     outstandingPrincipal,
@@ -478,6 +487,7 @@ export function derivePortfolio(state) {
   const interestReceivable = round2(loanViews.reduce((a, l) => a + l.overdueInterest, 0));
   const overdueAmount = round2(loanViews.reduce((a, l) => a + l.overduePrincipal + l.overdueInterest, 0));
   const totalCapital = round2(memberViews.reduce((a, m) => a + m.capital, 0));
+  const lateFeesDue = round2(loanViews.reduce((a, l) => a + l.lateFeesDue, 0));
 
   const interestReceived = round2(
     events.filter((e) => e.type === EVENT_TYPES.INTEREST_PAYMENT).reduce((a, e) => a + (Number(e.amount) || 0), 0)
@@ -496,10 +506,12 @@ export function derivePortfolio(state) {
     totalCapital,
     interestReceived,
     lateFeesCollected,
+    lateFeesDue,
     activeLoans: loanViews.filter((l) => l.effectiveStatus === "active" || l.effectiveStatus === "overdue").length,
     completedLoans: loanViews.filter((l) => l.effectiveStatus === "completed").length,
     overdueLoans: loanViews.filter((l) => l.isOverdue).length,
     membersActive: members.filter((m) => m.status === "active").length,
+    depositorsActive: members.filter((m) => m.status === "active" && isDepositor(m)).length,
     totalPoolAssets: round2(accounts.total + loansOutstanding),
   };
 }
@@ -729,4 +741,203 @@ export function isIncomeType(t) {
 
 export function isExpenseType(t) {
   return EXPENSE_EVENT_TYPES.includes(t);
+}
+// ---------------------------------------------------------------------------
+// Roles & referral rule
+// ---------------------------------------------------------------------------
+
+// Members saved before roles existed are depositors.
+export function memberRole(member) {
+  return member?.role || MEMBER_ROLES.DEPOSITOR;
+}
+
+export function isDepositor(member) {
+  return memberRole(member) !== MEMBER_ROLES.BORROWER;
+}
+
+// Who may refer a loan: an active depositor other than the borrower.
+export function eligibleReferrers(members, borrowerId = "") {
+  return members.filter((m) => m.status === "active" && isDepositor(m) && m.id !== borrowerId);
+}
+
+// Returns why a new loan breaks the referral rule, or "" when it is fine.
+export function loanReferralError(loan, members, rules = DEFAULT_RULES) {
+  if (rules?.requireReferral === false) return "";
+  if (!loan.referredById) return "A loan must be referred by a member.";
+  if (loan.referredById === loan.memberId) return "A borrower can't refer their own loan.";
+  const ref = members.find((m) => m.id === loan.referredById);
+  if (!ref || ref.status !== "active" || !isDepositor(ref)) return "The referrer must be an active depositing member.";
+  return "";
+}
+
+// ---------------------------------------------------------------------------
+// Monthly deposits — schedule per depositor, paid/due/late per month
+// ---------------------------------------------------------------------------
+
+// "YYYY-MM" + day → ISO date, clamped to the month's last day.
+function dayOfMonthISO(ym, day) {
+  const [y, m] = ym.split("-").map(Number);
+  const last = new Date(y, m, 0).getDate();
+  const d = Math.max(1, Math.min(Number(day) || 1, last));
+  return `${ym}-${String(d).padStart(2, "0")}`;
+}
+
+export function addMonthsYM(ym, n) {
+  const [y, m] = ym.split("-").map(Number);
+  const date = new Date(y, m - 1 + n, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function monthlyDepositOf(member, rules = DEFAULT_RULES) {
+  if (!isDepositor(member)) return 0;
+  const own = member.monthlyDeposit;
+  if (own === undefined || own === null || own === "") return Number(rules.defaultMonthlyDeposit) || 0;
+  return Number(own) || 0;
+}
+
+// Due date and deadline for one month. A deadline day before the due day
+// means the deadline falls in the following month.
+export function depositDates(ym, rules = DEFAULT_RULES) {
+  const dueDay = Number(rules.depositDueDay) || 1;
+  const deadlineDay = Number(rules.depositDeadlineDay) || dueDay;
+  const dueDate = dayOfMonthISO(ym, dueDay);
+  const deadline = deadlineDay >= dueDay ? dayOfMonthISO(ym, deadlineDay) : dayOfMonthISO(addMonthsYM(ym, 1), deadlineDay);
+  return { dueDate, deadline };
+}
+
+export function depositLateFee(expected, rules = DEFAULT_RULES) {
+  if (rules.depositLateFeeType === DEPOSIT_LATE_FEE.FIXED) return round2(Number(rules.depositLateFeeFixed) || 0);
+  if (rules.depositLateFeeType === DEPOSIT_LATE_FEE.PERCENTAGE) return round2((expected * (Number(rules.depositLateFeePercent) || 0)) / 100);
+  return 0;
+}
+
+// The month-by-month deposit record for one member, from their first deposit
+// month to the current month (or the month they became inactive).
+//
+// Contributions count toward the schedule like this:
+//   - tagged with depositMonth → that month first, any extra flows on
+//   - flagged lumpSum (opening / extra deposits) → never counted as monthly
+//   - anything else → the oldest month that is still unpaid
+// Status per month: paid, paid_late, late (past deadline, not fully paid),
+// due (due date reached, deadline not yet), upcoming.
+export function deriveDeposits(member, events, rulesIn = DEFAULT_RULES, today = todayISO()) {
+  const rules = { ...DEFAULT_RULES, ...rulesIn };
+  const amount = monthlyDepositOf(member, rules);
+  const contributions = events
+    .filter((e) => e.memberId === member.id && e.type === EVENT_TYPES.CONTRIBUTION && !e.lumpSum)
+    .sort((a, b) => (a.date === b.date ? String(a.createdAt).localeCompare(String(b.createdAt)) : a.date.localeCompare(b.date)));
+  const empty = { months: [], amount, expected: 0, paid: 0, arrears: 0, lateMonths: 0, lateFeesDue: 0, advance: 0, current: null };
+  if (!isDepositor(member) || amount <= 0) return empty;
+
+  const start = (member.depositStartMonth || member.joinedAt || today).slice(0, 7);
+  let end = today.slice(0, 7);
+  if (member.status === "inactive") {
+    const lastPaid = contributions.length ? contributions[contributions.length - 1].date.slice(0, 7) : start;
+    const stop = (member.inactiveSince || "").slice(0, 7) || lastPaid;
+    if (stop < end) end = stop;
+  }
+  const keys = [];
+  for (let ym = start; ym <= end && keys.length < 600; ym = addMonthsYM(ym, 1)) keys.push(ym);
+  if (keys.length === 0) return empty;
+
+  const months = keys.map((ym) => ({ month: ym, ...depositDates(ym, rules), expected: amount, paid: 0, paidDate: null, eventIds: [] }));
+  const byKey = Object.fromEntries(months.map((m, i) => [m.month, i]));
+  const credit = (m, amt, e) => {
+    const take = Math.min(Math.max(m.expected - m.paid, 0), amt);
+    if (take <= 0) return 0;
+    m.paid = round2(m.paid + take);
+    m.eventIds.push(e.id);
+    if (m.paid >= m.expected - 0.5) m.paidDate = e.date;
+    return take;
+  };
+
+  // Tagged contributions settle their own month first.
+  const queue = [];
+  for (const e of contributions) {
+    let amt = Number(e.amount) || 0;
+    const idx = e.depositMonth ? byKey[e.depositMonth] : undefined;
+    if (idx !== undefined) amt -= credit(months[idx], amt, e);
+    if (amt > 0.005) queue.push({ e, amt });
+  }
+  // The rest pays the oldest unpaid month first.
+  let advance = 0;
+  for (const q of queue) {
+    let amt = q.amt;
+    for (const m of months) {
+      if (amt <= 0.005) break;
+      amt -= credit(m, amt, q.e);
+    }
+    advance += Math.max(amt, 0);
+  }
+
+  const feesPaid = {};
+  for (const e of events) {
+    if (e.memberId === member.id && e.type === EVENT_TYPES.LATE_FEE && !e.loanId && e.depositMonth) {
+      feesPaid[e.depositMonth] = (feesPaid[e.depositMonth] || 0) + (Number(e.amount) || 0);
+    }
+  }
+
+  let expected = 0;
+  let paid = 0;
+  let arrears = 0;
+  let lateMonths = 0;
+  let lateFeesDue = 0;
+  for (const m of months) {
+    const left = round2(Math.max(m.expected - m.paid, 0));
+    const fullyPaid = left <= 0.5;
+    if (fullyPaid) m.status = m.paidDate && m.paidDate > m.deadline ? "paid_late" : "paid";
+    else if (today > m.deadline) m.status = "late";
+    else if (today >= m.dueDate) m.status = "due";
+    else m.status = "upcoming";
+    m.left = fullyPaid ? 0 : left;
+    m.isLate = m.status === "late" || m.status === "paid_late";
+    m.lateFee = m.isLate ? depositLateFee(m.expected, rules) : 0;
+    m.lateFeePaid = round2(feesPaid[m.month] || 0);
+    m.lateFeeDue = round2(Math.max(0, m.lateFee - m.lateFeePaid));
+    expected += m.expected;
+    paid += m.paid;
+    if (m.status === "late" || m.status === "due") arrears += m.left;
+    if (m.status === "late") lateMonths++;
+    lateFeesDue += m.lateFeeDue;
+  }
+
+  return {
+    months,
+    amount,
+    expected: round2(expected),
+    paid: round2(paid),
+    arrears: round2(arrears),
+    lateMonths,
+    lateFeesDue: round2(lateFeesDue),
+    advance: round2(advance),
+    current: months.find((m) => m.month === today.slice(0, 7)) || null,
+  };
+}
+
+// Kopri-wide deposit roll-up for one month ("YYYY-MM", default this month).
+export function depositSummary(state, month = todayISO().slice(0, 7), today = todayISO()) {
+  const rows = state.members
+    .filter((m) => isDepositor(m))
+    .map((m) => ({ member: m, deposits: deriveDeposits(m, state.events, state.rules, today) }))
+    .filter((r) => r.deposits.months.length > 0);
+  let expected = 0;
+  let collected = 0;
+  const unpaid = [];
+  for (const r of rows) {
+    const m = r.deposits.months.find((x) => x.month === month);
+    if (!m) continue;
+    expected += m.expected;
+    collected += m.paid;
+    if (m.left > 0.5 && m.status !== "upcoming") unpaid.push({ member: r.member, month: m });
+  }
+  return {
+    month,
+    rows,
+    expected: round2(expected),
+    collected: round2(collected),
+    unpaid,
+    lateMembers: rows.filter((r) => r.deposits.lateMonths > 0),
+    arrears: round2(rows.reduce((a, r) => a + r.deposits.arrears, 0)),
+    lateFeesDue: round2(rows.reduce((a, r) => a + r.deposits.lateFeesDue, 0)),
+  };
 }

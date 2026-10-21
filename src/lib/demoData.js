@@ -27,19 +27,21 @@ export function buildDemoState(name = "Sunrise Kopri") {
   const rules = { ...DEFAULT_RULES, kopriName: name, financialYearStart: "04-01" };
 
   const members = [
-    { id: "m1", name: "Anita Fernandes", phone: "98220 12345", email: "anita.f@example.com", joinedAt: dateNMonthsAgo(14), status: "active", notes: "Founding member, keeps the books." },
-    { id: "m2", name: "Rohit Naik", phone: "98221 23456", email: "rohit.naik@example.com", joinedAt: dateNMonthsAgo(14), status: "active", notes: "" },
-    { id: "m3", name: "Priya Desai", phone: "98222 34567", email: "priya.desai@example.com", joinedAt: dateNMonthsAgo(14), status: "active", notes: "" },
-    { id: "m4", name: "Manuel D'Souza", phone: "98223 45678", email: "manuel.dsouza@example.com", joinedAt: dateNMonthsAgo(12), status: "active", notes: "Owner of a bakery." },
-    { id: "m5", name: "Sneha Kerkar", phone: "98224 56789", email: "sneha.k@example.com", joinedAt: dateNMonthsAgo(10), status: "active", notes: "" },
-    { id: "m6", name: "Vijay Sawant", phone: "98225 67890", email: "vijay.s@example.com", joinedAt: dateNMonthsAgo(8), status: "active", notes: "" },
-    { id: "m7", name: "Lata Kamat", phone: "98226 78901", email: "lata.k@example.com", joinedAt: dateNMonthsAgo(6), status: "inactive", notes: "Withdrew mid-year." },
+    { id: "m1", name: "Anita Fernandes", phone: "98220 12345", email: "anita.f@example.com", joinedAt: dateNMonthsAgo(14), status: "active", role: "both", monthlyDeposit: 5000, notes: "Founding member, keeps the books." },
+    { id: "m2", name: "Rohit Naik", phone: "98221 23456", email: "rohit.naik@example.com", joinedAt: dateNMonthsAgo(14), status: "active", role: "both", monthlyDeposit: 5000, notes: "" },
+    { id: "m3", name: "Priya Desai", phone: "98222 34567", email: "priya.desai@example.com", joinedAt: dateNMonthsAgo(14), status: "active", role: "both", monthlyDeposit: 5000, notes: "" },
+    { id: "m4", name: "Manuel D'Souza", phone: "98223 45678", email: "manuel.dsouza@example.com", joinedAt: dateNMonthsAgo(12), status: "active", role: "both", monthlyDeposit: 5000, notes: "Owner of a bakery." },
+    { id: "m5", name: "Sneha Kerkar", phone: "98224 56789", email: "sneha.k@example.com", joinedAt: dateNMonthsAgo(10), status: "active", role: "depositor", monthlyDeposit: 5000, notes: "" },
+    { id: "m6", name: "Vijay Sawant", phone: "98225 67890", email: "vijay.s@example.com", joinedAt: dateNMonthsAgo(8), status: "active", role: "both", monthlyDeposit: 5000, notes: "" },
+    { id: "m7", name: "Lata Kamat", phone: "98226 78901", email: "lata.k@example.com", joinedAt: dateNMonthsAgo(6), status: "inactive", role: "depositor", monthlyDeposit: 5000, notes: "Withdrew mid-year." },
+    { id: "m8", name: "Joseph Pereira", phone: "98227 89012", email: "", joinedAt: dateNMonthsAgo(3), status: "active", role: "borrower", address: "Mapusa, Bardez", occupation: "Fisherman", idProof: "Aadhaar XXXX 4821", notes: "Not a depositor. Referred by Anita." },
   ];
 
   const loans = [
     {
       id: "l1",
       memberId: "m2",
+      referredById: "m1",
       principal: 300000,
       rate: 2,
       rateUnit: "monthly",
@@ -59,6 +61,7 @@ export function buildDemoState(name = "Sunrise Kopri") {
     {
       id: "l2",
       memberId: "m3",
+      referredById: "m4",
       principal: 200000,
       rate: 2,
       rateUnit: "monthly",
@@ -78,6 +81,7 @@ export function buildDemoState(name = "Sunrise Kopri") {
     {
       id: "l3",
       memberId: "m4",
+      referredById: "m1",
       principal: 150000,
       rate: 2.5,
       rateUnit: "monthly",
@@ -97,6 +101,7 @@ export function buildDemoState(name = "Sunrise Kopri") {
     {
       id: "l4",
       memberId: "m6",
+      referredById: "m5",
       principal: 250000,
       rate: 2.5,
       rateUnit: "monthly",
@@ -116,6 +121,7 @@ export function buildDemoState(name = "Sunrise Kopri") {
     {
       id: "l5",
       memberId: "m1",
+      referredById: "m2",
       principal: 100000,
       rate: 2,
       rateUnit: "monthly",
@@ -132,12 +138,33 @@ export function buildDemoState(name = "Sunrise Kopri") {
       security: "",
       notes: "Quarterly collection example.",
     },
+    {
+      id: "l6",
+      memberId: "m8",
+      referredById: "m1",
+      principal: 50000,
+      rate: 3,
+      rateUnit: "monthly",
+      interestMethod: "flat",
+      interestCollection: "monthly",
+      principalRepayment: "monthly",
+      startDate: dateNMonthsAgo(3),
+      tenureMonths: 10,
+      gracePeriodDays: 3,
+      lateRule: "fixed_penalty",
+      unpaidInterestRule: "carry_forward",
+      status: "active",
+      guarantorIds: ["m1"],
+      security: "Boat registration papers",
+      notes: "Non-member borrower, referred by Anita.",
+    },
   ];
 
   const events = [];
 
-  const contribution = (memberId, amount, date, note) =>
-    events.push({ id: uid("ev"), date, type: "MEMBER_CONTRIBUTION", memberId, amount, account: "cash", reference: "", description: note || "Monthly contribution", createdAt: `${date}T10:00:00.000Z` });
+  // Opening and lump-sum deposits are flagged so they don't count as monthly deposits.
+  const contribution = (memberId, amount, date, note, extra = {}) =>
+    events.push({ id: uid("ev"), date, type: "MEMBER_CONTRIBUTION", memberId, amount, account: "cash", reference: "", description: note || "Monthly contribution", createdAt: `${date}T10:00:00.000Z`, ...(/Opening|Lump/.test(note || "") ? { lumpSum: true } : {}), ...extra });
 
   // Founding contributions (14 months ago)
   contribution("m1", 50000, dateNMonthsAgo(14), "Opening contribution");
@@ -155,8 +182,11 @@ export function buildDemoState(name = "Sunrise Kopri") {
     ["m7", 6, 5000],
   ];
   for (const [mid, months, amt] of schedules) {
-    for (let m = months - 1; m >= 0; m--) {
-      contribution(mid, amt, dateNMonthsAgo(m, 2), "Monthly contribution");
+    for (let m = months; m >= 0; m--) {
+      // Vijay hasn't paid the last two months; Sneha paid one month late.
+      if (mid === "m6" && m <= 1) continue;
+      const day = mid === "m5" && m === 3 ? 22 : 2;
+      contribution(mid, amt, dateNMonthsAgo(m, day), "Monthly contribution", { depositMonth: dateNMonthsAgo(m, 1).slice(0, 7) });
     }
   }
 
@@ -178,6 +208,7 @@ export function buildDemoState(name = "Sunrise Kopri") {
   disburse("l3", "m4", 150000, dateNMonthsAgo(13, 3), "Loan disbursement");
   disburse("l4", "m6", 250000, dateNMonthsAgo(5, 10), "Loan disbursement");
   disburse("l5", "m1", 100000, dateNMonthsAgo(4, 12), "Loan disbursement");
+  disburse("l6", "m8", 50000, dateNMonthsAgo(3, 1), "Loan disbursement");
 
   // --- Repayments: generated from the same schedule engine the app uses,
   // so the demo data reconciles exactly with the repayment schedule.
@@ -197,6 +228,7 @@ export function buildDemoState(name = "Sunrise Kopri") {
     l3: 11, // fully paid
     l4: 2, // 3 of 5 due installments paid (2 missed → overdue)
     l5: 2, // 1 of 2 due quarters paid (next quarter still current)
+    l6: 1, // 2 of 3 due installments paid
   };
 
   for (const l of loans) {
