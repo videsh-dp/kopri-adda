@@ -17,6 +17,7 @@ export const EVENT_TYPES = {
   LOAN_WRITE_OFF: "LOAN_WRITE_OFF",
   PROFIT_ALLOCATION: "PROFIT_ALLOCATION",
   MEMBER_SETTLEMENT: "MEMBER_SETTLEMENT",
+  MANAGER_PAYOUT: "MANAGER_PAYOUT",
 };
 
 // How each event type affects money. sign: + adds to pool, - leaves the pool.
@@ -35,6 +36,7 @@ export const EVENT_META = {
   [EVENT_TYPES.LOAN_WRITE_OFF]: { label: "Bad Debt Write-off", sign: "0", account: "cash", color: "#dc2626" },
   [EVENT_TYPES.PROFIT_ALLOCATION]: { label: "Profit Allocation", sign: "0", account: "cash", color: "#4f46e5" },
   [EVENT_TYPES.MEMBER_SETTLEMENT]: { label: "Year-end Settlement", sign: "-", account: "cash", color: "#dc2626" },
+  [EVENT_TYPES.MANAGER_PAYOUT]: { label: "Manager's Share Paid", sign: "-", account: "cash", color: "#7c3aed" },
 };
 
 // Cash-flow impact for ledger balance derivation
@@ -52,6 +54,7 @@ export const CASH_SIGN = {
   [EVENT_TYPES.LOAN_WRITE_OFF]: 0, // non-cash: reduces the loan's outstanding principal
   [EVENT_TYPES.PROFIT_ALLOCATION]: 0, // non-cash book entry: pool owes member
   [EVENT_TYPES.MEMBER_SETTLEMENT]: -1,
+  [EVENT_TYPES.MANAGER_PAYOUT]: -1, // manager's year-end share: cash out, not an expense (already taken off profit)
 };
 
 export const INTEREST_METHODS = {
@@ -194,4 +197,4 @@ export const INCOME_EVENT_TYPES = [
 export const EXPENSE_EVENT_TYPES = [EVENT_TYPES.EXPENSE];
 
 export const CASH_IN_TYPES = [EVENT_TYPES.CONTRIBUTION, EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE, EVENT_TYPES.OTHER_INCOME];
-export const CASH_OUT_TYPES = [EVENT_TYPES.WITHDRAWAL, EVENT_TYPES.LOAN_DISBURSEMENT, EVENT_TYPES.EXPENSE, EVENT_TYPES.MEMBER_SETTLEMENT];
+export const CASH_OUT_TYPES = [EVENT_TYPES.WITHDRAWAL, EVENT_TYPES.LOAN_DISBURSEMENT, EVENT_TYPES.EXPENSE, EVENT_TYPES.MEMBER_SETTLEMENT, EVENT_TYPES.MANAGER_PAYOUT];

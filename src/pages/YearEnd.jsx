@@ -312,11 +312,17 @@ export default function YearEnd() {
         <p className="muted">
           Creates a <b>MEMBER_SETTLEMENT</b> ledger event for each member with their full payout: capital + profit share, paid out of the
           pool's cash. Total payout: <b>{formatINR(totalPayout)}</b>.
+          {(existing?.managerCharges || 0) > 0.5 && (
+            <>
+              {" "}
+              The manager's share of <b>{formatINR(existing.managerCharges)}</b> is paid out too. The reserve stays in the pool.
+            </>
+          )}
         </p>
-        {totalPayout > liquid + 0.5 && (
+        {totalPayout + (existing?.managerCharges || 0) > liquid + 0.5 && (
           <div className="alert alert-amber" style={{ marginTop: 10 }}>
             Cash + bank is only <b>{formatINR(liquid)}</b>, so the books will show a shortfall of{" "}
-            <b>{formatINR(totalPayout - liquid)}</b>. Collect outstanding loan repayments first, or settle once the money is in.
+            <b>{formatINR(totalPayout + (existing?.managerCharges || 0) - liquid)}</b>. Collect outstanding loan repayments first, or settle once the money is in.
           </div>
         )}
       </Modal>

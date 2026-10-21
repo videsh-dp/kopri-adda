@@ -285,6 +285,77 @@ const ye = (events, rules = {}, extra = {}) =>
   ok("old books get new rules and loan late-fee amounts", old.rules.depositDeadlineDay === 15 && old.loans[0].lateFixedPenalty === 75);
 }
 
+// ------------------------------------------- Full manager year, end to end
+// One calendar year run through the store exactly as the app does it, with
+// the year-end numbers worked out by hand.
+{
+  const R = (root, action) => rootReducer(root, action);
+  let root = { version: 2, settings: {}, activeKopriId: "k", kopris: [{ ...createBook({ name: "Y" }), id: "k" }] };
+  root = R(root, {
+    type: "UPDATE_RULES",
+    rules: { financialYearStart: "01-01", managerChargesRate: 10, reserveRate: 5, profitDistribution: "contribution_x_time", defaultMonthlyDeposit: 1000, depositLateFeeType: "fixed", depositLateFeeFixed: 50 },
+  });
+  root = R(root, { type: "ADD_MEMBER", member: { id: "A", name: "A", joinedAt: "2025-01-01", depositStartMonth: "2025-01" } });
+  root = R(root, { type: "ADD_MEMBER", member: { id: "B", name: "B", role: "both", joinedAt: "2025-01-01", depositStartMonth: "2025-01" } });
+  root = R(root, { type: "ADD_MEMBER", member: { id: "X", name: "X", role: "borrower", joinedAt: "2025-01-01" } });
+  const add = (event) => (root = R(root, { type: "ADD_EVENT", event }));
+  for (let m = 1; m <= 12; m++) {
+    const ym = `2025-${String(m).padStart(2, "0")}`;
+    add({ type: "MEMBER_CONTRIBUTION", memberId: "A", amount: 1000, date: `${ym}-05`, depositMonth: ym });
+    add({ type: "MEMBER_CONTRIBUTION", memberId: "B", amount: 1000, date: m === 3 ? `${ym}-20` : `${ym}-05`, depositMonth: ym });
+  }
+  add({ type: "LATE_FEE", memberId: "B", loanId: "", depositMonth: "2025-03", amount: 50, date: "2025-03-20" });
+
+  // 12,000 to non-member X, referred by A: flat 5%/mo → 1,000 principal + 600 interest a month.
+  const xl = { id: "XL", memberId: "X", referredById: "A", principal: 12000, rate: 5, rateUnit: "monthly", interestMethod: "flat", interestCollection: "monthly", principalRepayment: "monthly", startDate: "2025-01-01", tenureMonths: 12, gracePeriodDays: 5, lateRule: "fixed_penalty", status: "active" };
+  root = R(root, { type: "ADD_LOAN", loan: { ...xl, referredById: "" }, disbursement: {} });
+  ok("year: unreferred loan refused", root.kopris[0].loans.length === 0);
+  root = R(root, { type: "ADD_LOAN", loan: xl, disbursement: {} });
+  ok("year: referred loan to non-member booked", root.kopris[0].loans.length === 1);
+  for (let i = 0; i < 10; i++) {
+    const date = `2025-${String(i + 2).padStart(2, "0")}-01`;
+    add({ type: "PRINCIPAL_PAYMENT", memberId: "X", loanId: "XL", amount: 1000, installmentIndex: i, date });
+    add({ type: "INTEREST_PAYMENT", memberId: "X", loanId: "XL", amount: 600, installmentIndex: i, date });
+  }
+  add({ type: "LOAN_WRITE_OFF", memberId: "X", loanId: "XL", amount: 2000, date: "2025-12-20" });
+  add({ type: "EXPENSE", amount: 500, date: "2025-06-10", description: "Stationery" });
+
+  let book = root.kopris[0];
+  const dA = deriveDeposits(book.members[0], book.events, book.rules, "2025-12-31");
+  const dB = deriveDeposits(book.members[1], book.events, book.rules, "2025-12-31");
+  ok("year: A paid every month on time", dA.months.length === 12 && dA.months.every((m) => m.status === "paid"));
+  ok("year: B's March paid late, fee collected", dB.months[2].status === "paid_late" && dB.lateFeesDue === 0);
+  ok("year: borrower X has no deposit schedule", deriveDeposits(book.members[2], book.events, book.rules, "2025-12-31").months.length === 0);
+  const xv = deriveLoan(book.loans[0], book.events, "2025-12-31");
+  ok("year: written-off loan is closed with no late fees", xv.effectiveStatus === "defaulted" && xv.outstandingPrincipal === 0 && xv.lateFeesDue === 0);
+
+  // income 6,000 interest + 50 fee; costs 500 expense + 2,000 bad debt
+  const ye = computeYearEnd(book, "2025-12-31");
+  ok("year: gross profit = 6000 + 50 − 500 − 2000 = 3550", ye.grossProfit === 3550, ye.grossProfit);
+  ok("year: reserve 5% = 177.50", ye.reserve === 177.5, ye.reserve);
+  ok("year: manager's share 10% = 355", ye.managerCharges === 355, ye.managerCharges);
+  ok("year: distributable = 3017.50", ye.distributable === 3017.5, ye.distributable);
+  ok("year: shares add up exactly", near(ye.totalAllocated, 3017.5));
+  ok("year: borrower X gets no profit", !ye.allocations.some((a) => a.memberId === "X"));
+  const sA = ye.allocations.find((a) => a.memberId === "A").profitShare;
+  const sB = ye.allocations.find((a) => a.memberId === "B").profitShare;
+  ok("year: B's late March deposit earns slightly less than A", sA > sB && sB > 1400, `${sA} vs ${sB}`);
+  const eq = computeYearEnd({ ...book, rules: { ...book.rules, profitDistribution: "equal" } }, "2025-12-31");
+  ok("year: equal split gives 1508.75 each", eq.allocations.every((a) => a.profitShare === 1508.75));
+
+  // cash: +24,000 deposits +50 fee −12,000 loan +10,000 principal +6,000 interest −500
+  ok("year: cash before settlement = 27,550", deriveAccounts(book.events).total === 27550, deriveAccounts(book.events).total);
+  root = R(root, { type: "SAVE_YEAR_END", yearEnd: ye });
+  root = R(root, { type: "SETTLE_YEAR_END", year: "2025", date: "2026-01-05" });
+  book = root.kopris[0];
+  const mgr = book.events.find((e) => e.type === "MANAGER_PAYOUT");
+  ok("year: settlement pays the manager's share", mgr && mgr.amount === 355);
+  ok("year: after settlement only the reserve is left in cash", deriveAccounts(book.events).total === 177.5, deriveAccounts(book.events).total);
+  ok("year: members fully paid out", book.members.filter((m) => m.role !== "borrower").every((m) => deriveMember(m, book.events, book.loans).entitlement === 0));
+  const again = computeYearEnd(book, "2025-12-31");
+  ok("year: settling doesn't change the saved year's profit", again.grossProfit === 3550 && again.managerCharges === 355);
+}
+
 function round(x) {
   return Math.round(x * 100) / 100;
 }
