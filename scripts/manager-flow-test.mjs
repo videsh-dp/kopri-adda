@@ -30,6 +30,8 @@ const browser = await puppeteer.launch({
   userDataDir: freshProfileDir("kopri-manager-profile"),
 });
 const page = await browser.newPage();
+
+await page.evaluateOnNewDocument(() => localStorage.setItem("kopri:session:v1", JSON.stringify({ role: "admin" })));
 await page.setViewport({ width: 1400, height: 1000 });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));

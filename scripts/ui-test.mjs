@@ -20,6 +20,11 @@ try {
   // ---------------------------------------------------------------- Scenario 1:
   // Fresh profile → seeded with one demo Kopri
   const page = await browser.newPage();
+
+  await page.evaluateOnNewDocument(() => localStorage.setItem("kopri:session:v1", JSON.stringify({ role: "admin" })));
+
+
+  await page.setViewport({ width: 1400, height: 1000 });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
@@ -126,6 +131,9 @@ try {
   // Simulate an OLD user who only has v1 single-Kopri data (no v2 key yet).
   const incognito = await browser.createBrowserContext();
   const page2 = await incognito.newPage();
+
+  await page2.setViewport({ width: 1400, height: 1000 });
+  await page2.evaluateOnNewDocument(() => localStorage.setItem("kopri:session:v1", JSON.stringify({ role: "admin" })));
   const errors2 = [];
   page2.on("pageerror", (e) => errors2.push(String(e)));
   page2.on("console", (m) => m.type() === "error" && errors2.push(m.text()));

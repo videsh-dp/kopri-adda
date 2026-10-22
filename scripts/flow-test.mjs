@@ -20,6 +20,8 @@ const browser = await puppeteer.launch({
   userDataDir: freshProfileDir("kopri-flow-profile"),
 });
 const page = await browser.newPage();
+
+await page.evaluateOnNewDocument(() => localStorage.setItem("kopri:session:v1", JSON.stringify({ role: "admin" })));
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => m.type() === "error" && errors.push(m.text()));

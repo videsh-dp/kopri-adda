@@ -1304,3 +1304,183 @@ table.data tbody tr:last-child td {
 .dg-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .dg-legend .dg-cell { cursor: default; min-width: 24px; height: 20px; }
 tr.row-late td { background: var(--red-soft); }
+
+/* ------------------------------------------------------------ Login */
+.login-wrap {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 20px 16px;
+}
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 26px 22px;
+}
+.topbar-kopri {
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.more-sheet,
+.mobile-nav button {
+  display: none;
+}
+
+/* ---------------------------------------------------------- Phone polish */
+@media (max-width: 860px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  .topbar h1 {
+    white-space: nowrap;
+  }
+  .topbar {
+    min-width: 0;
+  }
+  .topbar-kopri {
+    display: none;
+  }
+  .topbar > h1 {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Kopri switcher: avatar + chevron only */
+  .topbar .btn > span {
+    display: none;
+  }
+  .topbar .btn {
+    padding: 6px 8px;
+  }
+
+  .mobile-nav {
+    justify-content: stretch;
+  }
+  .mobile-nav a,
+  .mobile-nav button {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 48px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 10.5px;
+    font-weight: 650;
+    color: var(--text-faint);
+    padding: 6px 2px;
+    border: none;
+    background: none;
+    border-radius: 10px;
+  }
+  .mobile-nav button.active {
+    color: var(--primary-text);
+    background: var(--primary-soft);
+  }
+
+  .more-sheet {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(62px + env(safe-area-inset-bottom));
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 18px 18px 0 0;
+    padding: 14px 14px 10px;
+    z-index: 38;
+    box-shadow: var(--shadow-lg);
+    animation: slideUp 0.18s ease-out;
+  }
+  .more-sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .more-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .more-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 12px 4px;
+    min-height: 62px;
+    border-radius: 12px;
+    background: var(--bg-soft);
+    color: var(--text-soft);
+    font-size: 12px;
+    font-weight: 650;
+    text-align: center;
+  }
+  .more-item.active {
+    background: var(--primary-soft);
+    color: var(--primary-text);
+  }
+
+  /* Bigger touch targets; 16px inputs stop iOS zooming on focus */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Dialogs become bottom sheets */
+  .modal-overlay {
+    padding: 0;
+    place-items: end stretch;
+  }
+  .modal,
+  .modal.wide {
+    max-width: none;
+    max-height: 92vh;
+    border-radius: 18px 18px 0 0;
+  }
+  .modal-head {
+    padding: 14px 16px;
+  }
+  .modal-body {
+    padding: 16px;
+  }
+  .modal-foot {
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    flex-wrap: wrap;
+    border-radius: 0;
+  }
+  .modal-foot .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .page-head .row {
+    width: 100%;
+  }
+  .page-head .row .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .scroll-top {
+    bottom: 76px;
+  }
+}

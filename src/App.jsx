@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Members from "./pages/Members.jsx";
@@ -11,9 +11,21 @@ import CashBank from "./pages/CashBank.jsx";
 import YearEnd from "./pages/YearEnd.jsx";
 import Reports from "./pages/Reports.jsx";
 import Rules from "./pages/Rules.jsx";
+import Managers from "./pages/Managers.jsx";
+import Login from "./pages/Login.jsx";
+import { useKopri } from "./state/KopriContext.jsx";
 import { ToastHost } from "./components/ui.jsx";
 
 export default function App() {
+  const { role } = useKopri();
+  if (!role) {
+    return (
+      <>
+        <Login />
+        <ToastHost />
+      </>
+    );
+  }
   return (
     <>
       <Routes>
@@ -29,6 +41,8 @@ export default function App() {
           <Route path="/year-end" element={<YearEnd />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/rules" element={<Rules />} />
+          {role === "admin" && <Route path="/managers" element={<Managers />} />}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
       <ToastHost />

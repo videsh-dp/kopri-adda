@@ -18,6 +18,9 @@ const ok = (name, cond) => {
 };
 
 const page = await browser.newPage();
+
+
+await page.evaluateOnNewDocument(() => localStorage.setItem("kopri:session:v1", JSON.stringify({ role: "admin" })));
 const errs = [];
 page.on("pageerror", (e) => errs.push(String(e)));
 

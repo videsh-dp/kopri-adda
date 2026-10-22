@@ -26,7 +26,16 @@ The app opens pre-loaded with a **realistic demo Kopri** (7 members, 5 loans in 
 | `npm run preview` | Serve the production build locally |
 | `npm run test:store` | Unit tests for the multi-Kopri store (no browser) |
 | `npm run test:manager` | End-to-end manager workflow in headless Chrome: rules, members, borrower, deposits and late fees, referred loan, every pay mode, year end with the manager's share (dev server running) |
+| `npm run test:auth` | Login, manager accounts, clear-demo-data and the 390px phone layout (no sideways scroll on any page, bottom nav and More sheet) in headless Chrome (dev server running) |
 | `npm run test:ui` | End-to-end UI test in headless Chrome (needs `CHROME_PATH` if Chrome isn't in the default location, and the dev server running) |
+
+## Login, managers and fresh starts
+
+- The app opens on a **login screen**. The **super admin** (`shediv`) sees every Kopri, the Kopri switcher and the **Managers** page.
+- On **Managers** the super admin adds a manager (name, username, password, Kopri name). That creates a brand-new, **empty** Kopri owned by the manager. The manager logs in with that username and password and sees only their own Kopri (no switcher, no admin pages). Passwords can be revealed and reset there.
+- **Clear demo data & start fresh** (Managers page, or Kopri Rules) removes the sample Kopri and leaves an empty one; managers and their Kopris are kept. **Clear this Kopri's data** (Kopri Rules, available to managers too) empties just one Kopri.
+- Everything lives in the browser's localStorage, so a manager can only log in on the device that holds the data. Use **Download backup / Restore backup** on the Managers page to move it to another device. This login only separates users in the UI — it is not real security (the credentials and data are readable in the browser); replace it with server auth when a backend is added.
+- On phones the bottom bar carries Dashboard, Members, Deposits and Loans, and **More** opens a sheet with every other page and Log out. Dialogs open as bottom sheets.
 
 ## Running multiple Kopris
 

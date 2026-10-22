@@ -17,7 +17,9 @@ const RATE_UNIT_OPTIONS = [
 ];
 
 export default function Rules() {
-  const { state, updateRules, resetDemo, clearAll } = useKopri();
+  const { state, updateRules, resetDemo, clearAll, clearKopri, renameKopri, isAdmin } = useKopri();
+  const [kopriName, setKopriName] = useState(state.name || "");
+  const [confirmClear, setConfirmClear] = useState(false);
   const [form, setForm] = useState(() => {
     const { kopriName, ...rest } = state.rules || {};
     return { ...rest };
@@ -239,13 +241,26 @@ export default function Rules() {
       </div>
 
       <Card title="Data & Storage" sub="This Kopri's data lives in this browser (localStorage + a session cookie). No server yet." pad>
+        <div className="row" style={{ marginBottom: 14, flexWrap: "nowrap" }}>
+          <input value={kopriName} onChange={(e) => setKopriName(e.target.value)} aria-label="Kopri name" style={{ maxWidth: 280 }} />
+          <Button disabled={!kopriName.trim() || kopriName.trim() === state.name} onClick={() => renameKopri(state.id, kopriName.trim())}>
+            Rename Kopri
+          </Button>
+        </div>
         <div className="row">
-          <Button variant="danger" onClick={() => setConfirmReset(true)}>
-            Reset this Kopri to demo data
+          <Button variant="danger" onClick={() => setConfirmClear(true)}>
+            Clear this Kopri's data (start fresh)
           </Button>
-          <Button variant="danger" onClick={() => setConfirmWipe(true)}>
-            Wipe ALL Kopris & start fresh
-          </Button>
+          {isAdmin && (
+            <Button variant="danger" onClick={() => setConfirmReset(true)}>
+              Reset this Kopri to demo data
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="danger" onClick={() => setConfirmWipe(true)}>
+              Clear demo data & start fresh
+            </Button>
+          )}
           <span className="small faint">
             {state.members.length} members · {state.loans.length} loans · {state.events.length} ledger events · FY start{" "}
             {state.rules.financialYearStart}
@@ -256,6 +271,31 @@ export default function Rules() {
           isolated account and its events migrate to PostgreSQL.
         </div>
       </Card>
+
+      <Modal
+        open={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        title="Clear this Kopri's data?"
+        footer={
+          <>
+            <Button onClick={() => setConfirmClear(false)}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                clearKopri();
+                setConfirmClear(false);
+              }}
+            >
+              Clear data
+            </Button>
+          </>
+        }
+      >
+        <p className="muted">
+          Removes every member, loan, ledger entry and year-end record from <b>{state?.name}</b> so you can start from scratch. Your rules
+          are kept. This cannot be undone.
+        </p>
+      </Modal>
 
       <Modal
         open={confirmReset}
@@ -288,7 +328,7 @@ export default function Rules() {
       <Modal
         open={confirmWipe}
         onClose={() => setConfirmWipe(false)}
-        title="Wipe ALL Kopris?"
+        title="Clear demo data and start fresh?"
         footer={
           <>
             <Button onClick={() => setConfirmWipe(false)}>Cancel</Button>
@@ -302,13 +342,13 @@ export default function Rules() {
                 setConfirmWipe(false);
               }}
             >
-              Wipe everything
+              Clear demo data
             </Button>
           </>
         }
       >
         <p className="muted">
-          Deletes every Kopri and all their data from this browser, then starts one fresh empty Kopri. This cannot be undone.
+          Deletes the sample Kopri(s) and starts one fresh empty Kopri. Managers and their Kopris are kept. This cannot be undone.
         </p>
       </Modal>
     </div>

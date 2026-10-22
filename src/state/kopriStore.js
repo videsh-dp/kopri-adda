@@ -71,6 +71,7 @@ export function migrateRoot(raw) {
       version: ROOT_VERSION,
       settings: raw.settings || { theme: "light" },
       activeKopriId: book.id,
+      managers: [],
       kopris: [book],
     });
   }
@@ -81,10 +82,13 @@ export function sanitizeRoot(root) {
   if (!root || !Array.isArray(root.kopris) || root.kopris.length === 0) return null;
   const kopris = root.kopris.map((b) => normalizeBook({ ...b, name: b.name || b.rules?.kopriName || DEFAULT_KOPRI_NAME }));
   const activeKopriId = kopris.some((k) => k.id === root.activeKopriId) ? root.activeKopriId : kopris[0].id;
+  // Managers whose Kopri no longer exists can't log in to anything — drop them.
+  const managers = (Array.isArray(root.managers) ? root.managers : []).filter((m) => m && kopris.some((k) => k.id === m.kopriId));
   return {
     version: ROOT_VERSION,
     settings: root.settings || { theme: "light" },
     activeKopriId,
+    managers,
     kopris,
   };
 }
@@ -108,7 +112,7 @@ export function normalizeBook(book) {
 
 export function seedRoot() {
   const book = demoBook();
-  return sanitizeRoot({ version: ROOT_VERSION, settings: { theme: "light" }, activeKopriId: book.id, kopris: [book] });
+  return sanitizeRoot({ version: ROOT_VERSION, settings: { theme: "light" }, activeKopriId: book.id, managers: [], kopris: [book] });
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +345,7 @@ export function rootReducer(root, action) {
 
     case "DELETE_KOPRI": {
       if (root.kopris.length <= 1) return root; // always keep at least one Kopri
+      if ((root.managers || []).some((m) => m.kopriId === action.id)) return root; // a manager's Kopri goes with the manager
       const kopris = root.kopris.filter((k) => k.id !== action.id);
       const activeKopriId = root.activeKopriId === action.id ? kopris[0].id : root.activeKopriId;
       return { ...root, kopris, activeKopriId };
@@ -358,9 +363,59 @@ export function rootReducer(root, action) {
       };
     }
 
+    // Clear the demo/seed data: drops every Kopri that isn't a manager's own
+    // (managers and their Kopris are kept) and adds one empty Kopri for the
+    // super admin.
     case "WIPE_ALL": {
+      const managers = root.managers || [];
+      const owned = root.kopris.filter((k) => managers.some((m) => m.kopriId === k.id));
       const book = createBook({ name: DEFAULT_KOPRI_NAME, template: "empty" });
-      return sanitizeRoot({ version: ROOT_VERSION, settings: root.settings, activeKopriId: book.id, kopris: [book] });
+      return sanitizeRoot({ version: ROOT_VERSION, settings: root.settings, activeKopriId: book.id, managers, kopris: [book, ...owned] });
+    }
+
+    // Empty one Kopri (members, loans, ledger, year-ends) but keep its name and rules.
+    case "RESET_KOPRI_EMPTY": {
+      return {
+        ...root,
+        kopris: root.kopris.map((k) => (k.id === action.id ? { ...k, members: [], loans: [], events: [], yearEnds: [] } : k)),
+      };
+    }
+
+    // --- Managers: each one owns a single, fresh Kopri ---
+
+    case "ADD_MANAGER": {
+      const username = String(action.username || "").trim();
+      const password = String(action.password || "");
+      if (!username || !password || managerUsernameTaken(root, username)) return root;
+      const name = action.name?.trim() || username;
+      const book = createBook({ name: action.kopriName?.trim() || `${name}'s Kopri`, template: "empty" });
+      const manager = { id: uid("u"), name, username, password, kopriId: book.id, createdAt: todayISO() };
+      return { ...root, managers: [...(root.managers || []), manager], kopris: [...root.kopris, book] };
+    }
+
+    case "UPDATE_MANAGER": {
+      const patch = { ...action.patch };
+      if (patch.username !== undefined) {
+        patch.username = String(patch.username).trim();
+        if (!patch.username || managerUsernameTaken(root, patch.username, action.id)) return root;
+      }
+      if (patch.password !== undefined && !patch.password) return root;
+      return { ...root, managers: (root.managers || []).map((m) => (m.id === action.id ? { ...m, ...patch } : m)) };
+    }
+
+    case "DELETE_MANAGER": {
+      const manager = (root.managers || []).find((m) => m.id === action.id);
+      if (!manager) return root;
+      const managers = root.managers.filter((m) => m.id !== action.id);
+      let kopris = action.deleteKopri ? root.kopris.filter((k) => k.id !== manager.kopriId) : root.kopris;
+      if (kopris.length === 0) kopris = [createBook({ name: DEFAULT_KOPRI_NAME, template: "empty" })];
+      const activeKopriId = kopris.some((k) => k.id === root.activeKopriId) ? root.activeKopriId : kopris[0].id;
+      return { ...root, managers, kopris, activeKopriId };
+    }
+
+    case "IMPORT_ROOT": {
+      const incoming = sanitizeRoot(action.root);
+      return incoming ? { ...incoming, settings: root.settings } : root;
     }
 
     // --- Global settings ---
@@ -388,6 +443,17 @@ export function rootReducer(root, action) {
     }
   }
 }
+
+export function managerUsernameTaken(root, username, exceptId) {
+  const u = String(username).trim().toLowerCase();
+  return (root.managers || []).some((m) => m.id !== exceptId && m.username.toLowerCase() === u);
+}
+
+// Actions that act on the whole app rather than on one Kopri's book.
+export const ROOT_ACTIONS = new Set([
+  "ADD_KOPRI", "SET_ACTIVE_KOPRI", "RENAME_KOPRI", "DELETE_KOPRI", "RESET_KOPRI_DEMO", "WIPE_ALL", "RESET_KOPRI_EMPTY",
+  "ADD_MANAGER", "UPDATE_MANAGER", "DELETE_MANAGER", "IMPORT_ROOT", "SET_THEME", "SET_SETTINGS", "LOAD_FROM_TAB",
+]);
 
 export function activeBook(root) {
   return root?.kopris?.find((k) => k.id === root.activeKopriId) || root?.kopris?.[0] || null;
