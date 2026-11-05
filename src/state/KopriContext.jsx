@@ -50,6 +50,10 @@ export function KopriProvider({ children }) {
     const theme = root.settings?.theme || "light";
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
+    // Match the phone's status bar / browser chrome to the app background.
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", bg || (theme === "dark" ? "#0f1117" : "#f4f5f9"));
+    document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute("content", theme === "dark" ? "black" : "default");
   }, [root.settings?.theme]);
 
   // Kopri list for the switcher UI

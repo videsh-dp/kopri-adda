@@ -14,7 +14,8 @@
     "test:ui": "node scripts/ui-test.mjs",
     "test:flow": "node scripts/flow-test.mjs",
     "test:manager": "node scripts/manager-flow-test.mjs",
-    "test:year-end-interest": "node scripts/year-end-interest-test.mjs"
+    "test:year-end-interest": "node scripts/year-end-interest-test.mjs",
+    "test:mobile": "node scripts/mobile-test.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

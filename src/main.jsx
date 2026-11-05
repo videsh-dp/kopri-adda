@@ -4,6 +4,9 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import { KopriProvider } from "./state/KopriContext.jsx";
 import "./styles/app.css";
+import { registerServiceWorker } from "./lib/pwa.js";
+
+registerServiceWorker();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

@@ -96,7 +96,7 @@ export default function LoanDetail() {
   return (
     <div className="stack">
       <div className="spread">
-        <Link to="/loans" className="btn btn-ghost btn-sm">
+        <Link to="/loans" className="btn btn-ghost btn-sm page-back">
           <IconArrow style={{ transform: "rotate(180deg)" }} /> Loans
         </Link>
         <div className="row">

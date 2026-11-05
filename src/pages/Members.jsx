@@ -109,7 +109,7 @@ export default function Members() {
               </thead>
               <tbody>
                 {members.map((m) => (
-                  <tr key={m.id} className="row-link" onClick={() => navigate(`/members/${m.id}`)}>
+                  <tr key={m.id} className="row-link" onClick={(e) => !e.target.closest("a, button") && navigate(`/members/${m.id}`)}>
                     <td>
                       <MemberCell name={m.name} sub={m.phone || "no phone"} id={m.id} />
                     </td>
