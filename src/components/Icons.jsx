@@ -191,3 +191,33 @@ export const IconCalendar = (p) => (
     <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01" />
   </svg>
 );
+
+export const IconMore = (p) => (
+  <svg {...base} {...p}>
+    <circle cx="5" cy="12" r="1.6" fill="currentColor" />
+    <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+    <circle cx="19" cy="12" r="1.6" fill="currentColor" />
+  </svg>
+);
+
+export const IconBack = (p) => (
+  <svg {...base} {...p}>
+    <path d="M15 18l-6-6 6-6" />
+  </svg>
+);
+
+export const IconArrowUp = (p) => (
+  <svg {...base} {...p}>
+    <path d="M12 19V5" />
+    <path d="M5 12l7-7 7 7" />
+  </svg>
+);
+
+export const IconInstall = (p) => (
+  <svg {...base} {...p}>
+    <rect x="6" y="2" width="12" height="20" rx="2.5" />
+    <path d="M12 7v7" />
+    <path d="M9 11l3 3 3-3" />
+    <path d="M10.5 18.5h3" />
+  </svg>
+);

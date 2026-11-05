@@ -23,6 +23,15 @@ Every push to `master` runs `.github/workflows/deploy.yml`: it installs, runs `n
 
 The site is public, but there is no server: each visitor's data lives only in their own browser's localStorage, starting from the demo Kopri. Nothing typed in is shared with anyone else, and clearing the browser's site data erases it.
 
+### Use it as a phone app
+
+On phones the app switches to an app layout: a bottom tab bar (Home, Members, Deposits, Loans, More), an app bar with a back button on loan and member pages, and dialogs that slide up from the bottom. It is also an installable PWA (`public/manifest.webmanifest`, icons in `public/icons/`, offline shell in `public/sw.js`):
+
+- **Android / Chrome / Edge:** tap **Install** on the banner, in **More**, or in the browser menu.
+- **iPhone / iPad (Safari):** tap **Share → Add to Home Screen**.
+
+Once opened, the app keeps working offline because all data is already on the device. The service worker is only registered in production builds (`npm run build`, `npm run preview`, or the live site), not in `npm run dev`. `npm run test:mobile` checks that every screen fits a 360px phone (needs the dev server).
+
 ### Other commands
 
 | Command | What it does |
@@ -33,6 +42,7 @@ The site is public, but there is no server: each visitor's data lives only in th
 | `npm run test:store` | Unit tests for the multi-Kopri store (no browser) |
 | `npm run test:manager` | End-to-end manager workflow in headless Chrome: rules, members, borrower, deposits and late fees, referred loan, every pay mode, year end with the manager's share (dev server running) |
 | `npm run test:ui` | End-to-end UI test in headless Chrome (needs `CHROME_PATH` if Chrome isn't in the default location, and the dev server running) |
+| `npm run test:mobile` | Phone layout check in headless Chrome: every screen fits 360px, tab bar and More sheet work, PWA manifest is wired (dev server running) |
 
 ## Running multiple Kopris
 

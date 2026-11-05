@@ -225,7 +225,7 @@ export function ToastHost() {
       className="toast"
       style={{
         position: "fixed",
-        bottom: 84,
+        bottom: "calc(84px + env(safe-area-inset-bottom, 0px))",
         left: "50%",
         transform: "translateX(-50%)",
         background: "var(--bg-elev)",

@@ -157,7 +157,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="stat-grid" style={{ gridTemplateColumns: "1.6fr 1fr" }}>
+      <div className="split-grid wide-left">
         <Card title="Cash Flow — last 12 months" sub="Inflows vs outflows from the ledger" pad>
           <div className="chart-box">
             <ResponsiveContainer width="100%" height="100%">

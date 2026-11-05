@@ -64,7 +64,7 @@ export default function Rules() {
         </div>
       </div>
 
-      <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="split-grid">
         <Card title="Identity" sub={`Rules for “${state?.name || "this Kopri"}”`} pad>
           <div className="form-grid">
             <Field label="Financial year start" hint="MM-DD — year-end runs to the day before this date">

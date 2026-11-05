@@ -68,7 +68,7 @@ export default function MemberDetail() {
   return (
     <div className="stack">
       <div className="spread">
-        <Link to="/members" className="btn btn-ghost btn-sm">
+        <Link to="/members" className="btn btn-ghost btn-sm page-back">
           <IconArrow style={{ transform: "rotate(180deg)" }} /> Members
         </Link>
         <div className="row">
@@ -285,7 +285,7 @@ export default function MemberDetail() {
               </thead>
               <tbody>
                 {loans.map((l) => (
-                  <tr key={l.id} className="row-link" onClick={() => navigate(`/loans/${l.id}`)}>
+                  <tr key={l.id} className="row-link" onClick={(e) => !e.target.closest("a, button") && navigate(`/loans/${l.id}`)}>
                     <td className="muted mono">{l.id.toUpperCase()}</td>
                     <td>{formatINR(l.principal)}</td>
                     <td className="muted">

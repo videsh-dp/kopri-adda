@@ -106,7 +106,7 @@ export default function Loans() {
                 {loans.map((l) => {
                   const m = memberById[l.memberId];
                   return (
-                    <tr key={l.id} className="row-link" onClick={() => navigate(`/loans/${l.id}`)}>
+                    <tr key={l.id} className="row-link" onClick={(e) => !e.target.closest("a, button") && navigate(`/loans/${l.id}`)}>
                       <td className="mono muted">{l.id.toUpperCase()}</td>
                       <td>
                         <MemberCell

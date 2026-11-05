@@ -32,20 +32,21 @@ export default function KopriSwitcher() {
   }, [open]);
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={ref} className="kopri-switch" style={{ position: "relative" }}>
       <button
-        className="btn"
+        className="btn kopri-switch-btn"
         onClick={() => setOpen((o) => !o)}
         title="Switch Kopri / manage accounts"
         style={{ maxWidth: 220 }}
       >
         <Avatar name={activeName} id={active?.id || "k"} size="sm" />
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 130 }}>{activeName}</span>
+        <span className="kopri-switch-name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 130 }}>{activeName}</span>
         <Chevron />
       </button>
 
       {open && (
         <div
+          className="kopri-switch-menu"
           style={{
             position: "absolute",
             top: "calc(100% + 8px)",
