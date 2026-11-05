@@ -69,6 +69,9 @@ export default function Dashboard() {
       PROFIT_ALLOCATION: "Profit allocated",
       MEMBER_SETTLEMENT: "Settlement",
       MANAGER_PAYOUT: "Manager's share",
+      INTEREST_CAPITALIZED: "Interest capitalized",
+      INTEREST_TO_ARREARS: "Interest to arrears",
+      INTEREST_WAIVED: "Interest waived",
     };
     return labels[e.type] || e.type;
   };

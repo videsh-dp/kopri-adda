@@ -14,6 +14,8 @@ import {
   depositSummary,
   loanReferralError,
   computeLateCharges,
+  unpaidInterestAtYearEnd,
+  unpaidInterestEvents,
 } from "../src/lib/calculations.js";
 import { DEFAULT_RULES } from "../src/lib/constants.js";
 import { rootReducer, createBook, normalizeBook } from "../src/state/kopriStore.js";
@@ -354,6 +356,87 @@ const ye = (events, rules = {}, extra = {}) =>
   ok("year: members fully paid out", book.members.filter((m) => m.role !== "borrower").every((m) => deriveMember(m, book.events, book.loans).entitlement === 0));
   const again = computeYearEnd(book, "2025-12-31");
   ok("year: settling doesn't change the saved year's profit", again.grossProfit === 3550 && again.managerCharges === 355);
+}
+
+// ------------------------------------------------- Unpaid interest at year end
+{
+  const L = {
+    id: "U1", memberId: "a", principal: 12000, rate: 2, rateUnit: "monthly",
+    interestMethod: "reducing_balance", interestCollection: "monthly", principalRepayment: "monthly",
+    startDate: "2025-01-15", tenureMonths: 12, gracePeriodDays: 5, lateRule: "grace_only", status: "active",
+  };
+  const YE = "2025-03-31"; // FY 2024 (April start)
+  const paidFirst = [
+    ev({ date: "2025-01-15", type: "LOAN_DISBURSEMENT", memberId: "a", loanId: "U1", amount: 12000 }),
+    ev({ date: "2025-02-15", type: "PRINCIPAL_PAYMENT", memberId: "a", loanId: "U1", installmentIndex: 0, amount: 1000 }),
+    ev({ date: "2025-02-15", type: "INTEREST_PAYMENT", memberId: "a", loanId: "U1", installmentIndex: 0, amount: 240 }),
+  ];
+  const st = (loan, events, rules = {}) => ({ loans: [loan], events, members: [A], rules: { ...DEFAULT_RULES, ...rules }, yearEnds: [] });
+  const apply = (loan, rule, extra = []) => {
+    const unpaid = unpaidInterestAtYearEnd(st({ ...loan, unpaidInterestRule: rule }, paidFirst), YE);
+    return [...paidFirst, ...unpaidInterestEvents(unpaid, "2024", YE).map((e) => ev(e)), ...extra];
+  };
+
+  const u = unpaidInterestAtYearEnd(st(L, paidFirst), YE);
+  ok("unpaid interest: only interest due by year end (Mar installment, 220)", u.length === 1 && u[0].amount === 220 && u[0].allocations[0].index === 1, JSON.stringify(u));
+  ok("unpaid interest: no rule on the loan → Kopri default (carry forward)", u[0].action === "carry_forward");
+  ok("carry forward records nothing", unpaidInterestEvents(u, "2024", YE).length === 0);
+
+  const profit = (events) => computeYearEnd(st(L, events), YE).interestCollected;
+  ok("profit counts cash interest only, whatever the rule", ["capitalize", "separate_outstanding", "write_off"].every((r) => profit(apply(L, r)) === 240));
+
+  // Capitalize
+  const capEvents = apply(L, "capitalize");
+  const cap = deriveLoan({ ...L, unpaidInterestRule: "capitalize" }, capEvents, "2025-04-01");
+  ok("capitalize: interest on that installment is settled", cap.installments[1].interestLeft === 0 && cap.installments[1].interestCleared === 220);
+  ok("capitalize: added to principal", cap.interestCapitalized === 220 && cap.totalPrincipal === 12220 && cap.outstandingPrincipal === 11220);
+  ok("capitalize: repaid over the 10 installments after year end (+22 each)", cap.installments.slice(2).every((i) => i.principalDue === 1022) && cap.installments[1].principalDue === 1000);
+  ok("capitalize: bears interest from the next period (10000 → 9198 × 2%)", cap.installments[2].interestDue === 200 && cap.installments[3].interestDue === 183.96, `${cap.installments[2].interestDue}/${cap.installments[3].interestDue}`);
+  ok("capitalize: interest received stays cash-only", cap.interestPaid === 240);
+  ok("capitalize: no cash moves", deriveAccounts(capEvents).cash === deriveAccounts(paidFirst).cash);
+
+  // Move to arrears
+  const arr = deriveLoan(L, apply(L, "separate_outstanding"), "2025-04-01");
+  ok("arrears: off the installment, owed separately", arr.installments[1].interestLeft === 0 && arr.interestArrears === 220);
+  ok("arrears: not overdue interest (no late charges on it)", arr.overdueInterest === 0 && arr.overduePrincipal === 1000);
+  ok("arrears: included in total outstanding", arr.totalOutstanding === round(arr.outstandingPrincipal + arr.overdueInterest + 220));
+  const part = deriveLoan(L, apply(L, "separate_outstanding", [ev({ date: "2025-05-01", type: "INTEREST_PAYMENT", loanId: "U1", amount: 100, arrears: true })]), "2025-05-02");
+  ok("arrears payment reduces arrears and counts as interest received", part.interestArrears === 120 && part.interestPaid === 340);
+  const over = deriveLoan(L, apply(L, "separate_outstanding", [ev({ date: "2025-05-01", type: "INTEREST_PAYMENT", loanId: "U1", amount: 250, arrears: true })]), "2025-05-02");
+  ok("arrears overpayment flows to the next interest due", over.interestArrears === 0 && over.installments[2].interestPaid === 30);
+
+  // Waive
+  const w = deriveLoan(L, apply(L, "write_off"), "2025-04-01");
+  ok("waive: forgiven, not owed, not income", w.interestWaived === 220 && w.interestArrears === 0 && w.installments[1].interestLeft === 0 && w.interestPaid === 240);
+
+  // Manual
+  const manual = { ...L, unpaidInterestRule: "manual" };
+  ok("manual: defaults to carry forward until chosen", unpaidInterestAtYearEnd(st(manual, paidFirst), YE)[0].action === "carry_forward");
+  ok("manual: uses the choice made at year end", unpaidInterestAtYearEnd(st(manual, paidFirst), YE, { U1: "write_off" })[0].action === "write_off");
+
+  // Stable after applying; shown in computeYearEnd
+  const after = unpaidInterestAtYearEnd(st({ ...L, unpaidInterestRule: "capitalize" }, capEvents), YE);
+  ok("list is unchanged after its own entries are recorded", after.length === 1 && after[0].amount === 220);
+  ok("computeYearEnd previews unpaid interest", computeYearEnd(st(L, paidFirst), YE).unpaidInterest[0]?.amount === 220);
+
+  // Fully paid needs arrears cleared too
+  const allPaid = buildSchedule(L).flatMap((i) => [
+    ev({ date: i.dueDate, type: "PRINCIPAL_PAYMENT", loanId: "U1", installmentIndex: i.index, amount: i.principalDue }),
+    ...(i.index === 1 ? [] : [ev({ date: i.dueDate, type: "INTEREST_PAYMENT", loanId: "U1", installmentIndex: i.index, amount: i.interestDue })]),
+  ]);
+  const arrUnpaid = unpaidInterestAtYearEnd(st({ ...L, unpaidInterestRule: "separate_outstanding" }, allPaid), YE);
+  const withArr = [...allPaid, ...unpaidInterestEvents(arrUnpaid, "2024", YE).map((e) => ev(e))];
+  ok("loan isn't completed while arrears are owed", deriveLoan(L, withArr, "2026-02-01").effectiveStatus !== "completed");
+  ok("…and is once they're paid", deriveLoan(L, [...withArr, ev({ date: "2026-01-20", type: "INTEREST_PAYMENT", loanId: "U1", amount: 220, arrears: true })], "2026-02-01").effectiveStatus === "completed");
+
+  // Store: saving the year end records the entries; re-saving replaces them
+  let root = { version: 2, settings: {}, activeKopriId: "k", kopris: [normalizeBook({ ...createBook({ name: "T" }), id: "k", members: [A], loans: [{ ...L, unpaidInterestRule: "capitalize" }], events: paidFirst })] };
+  const book = () => root.kopris[0];
+  const yeRec = () => ({ ...computeYearEnd(book(), YE), year: "2024" });
+  root = rootReducer(root, { type: "SAVE_YEAR_END", yearEnd: yeRec() });
+  root = rootReducer(root, { type: "SAVE_YEAR_END", yearEnd: yeRec() });
+  const caps = book().events.filter((e) => e.type === "INTEREST_CAPITALIZED");
+  ok("saving the year end records one entry per treated loan (re-save replaces it)", caps.length === 1 && caps[0].amount === 220 && caps[0].yearEnd === "2024");
 }
 
 function round(x) {

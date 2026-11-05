@@ -7,6 +7,7 @@ import {
   PRINCIPAL_REPAYMENT,
   LATE_RULES,
   UNPAID_INTEREST_RULES,
+  UNPAID_INTEREST_LABELS,
   PROFIT_DISTRIBUTION,
   DEPOSIT_LATE_FEE,
 } from "../lib/constants.js";
@@ -199,13 +200,13 @@ export default function Rules() {
                 <input type="number" step="0.1" value={form.latePercentagePenalty} onChange={set("latePercentagePenalty")} />
               </Field>
             )}
-            <Field label="Unpaid interest at year end">
+            <Field label="Unpaid interest at year end" hint="Applied on the Year End page when the allocation is saved">
               <select value={form.unpaidInterestRule} onChange={set("unpaidInterestRule")}>
-                <option value={UNPAID_INTEREST_RULES.CARRY_FORWARD}>Carry forward</option>
-                <option value={UNPAID_INTEREST_RULES.SEPARATE_OUTSTANDING}>Separate outstanding</option>
-                <option value={UNPAID_INTEREST_RULES.CAPITALIZE}>Capitalize into principal</option>
-                <option value={UNPAID_INTEREST_RULES.WRITE_OFF}>Write off</option>
-                <option value={UNPAID_INTEREST_RULES.MANUAL}>Manual</option>
+                {Object.entries(UNPAID_INTEREST_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </Field>
           </div>

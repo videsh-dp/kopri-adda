@@ -13,7 +13,8 @@
     "test:store": "node scripts/store-test.mjs",
     "test:ui": "node scripts/ui-test.mjs",
     "test:flow": "node scripts/flow-test.mjs",
-    "test:manager": "node scripts/manager-flow-test.mjs"
+    "test:manager": "node scripts/manager-flow-test.mjs",
+    "test:year-end-interest": "node scripts/year-end-interest-test.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

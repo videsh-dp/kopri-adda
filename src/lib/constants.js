@@ -18,6 +18,10 @@ export const EVENT_TYPES = {
   PROFIT_ALLOCATION: "PROFIT_ALLOCATION",
   MEMBER_SETTLEMENT: "MEMBER_SETTLEMENT",
   MANAGER_PAYOUT: "MANAGER_PAYOUT",
+  // Year-end treatment of interest that was due but unpaid (non-cash)
+  INTEREST_CAPITALIZED: "INTEREST_CAPITALIZED",
+  INTEREST_TO_ARREARS: "INTEREST_TO_ARREARS",
+  INTEREST_WAIVED: "INTEREST_WAIVED",
 };
 
 // How each event type affects money. sign: + adds to pool, - leaves the pool.
@@ -37,6 +41,9 @@ export const EVENT_META = {
   [EVENT_TYPES.PROFIT_ALLOCATION]: { label: "Profit Allocation", sign: "0", account: "cash", color: "#4f46e5" },
   [EVENT_TYPES.MEMBER_SETTLEMENT]: { label: "Year-end Settlement", sign: "-", account: "cash", color: "#dc2626" },
   [EVENT_TYPES.MANAGER_PAYOUT]: { label: "Manager's Share Paid", sign: "-", account: "cash", color: "#7c3aed" },
+  [EVENT_TYPES.INTEREST_CAPITALIZED]: { label: "Interest Capitalized", sign: "0", account: "cash", color: "#64748b" },
+  [EVENT_TYPES.INTEREST_TO_ARREARS]: { label: "Interest to Arrears", sign: "0", account: "cash", color: "#64748b" },
+  [EVENT_TYPES.INTEREST_WAIVED]: { label: "Interest Waived", sign: "0", account: "cash", color: "#64748b" },
 };
 
 // Cash-flow impact for ledger balance derivation
@@ -55,6 +62,9 @@ export const CASH_SIGN = {
   [EVENT_TYPES.PROFIT_ALLOCATION]: 0, // non-cash book entry: pool owes member
   [EVENT_TYPES.MEMBER_SETTLEMENT]: -1,
   [EVENT_TYPES.MANAGER_PAYOUT]: -1, // manager's year-end share: cash out, not an expense (already taken off profit)
+  [EVENT_TYPES.INTEREST_CAPITALIZED]: 0, // non-cash: unpaid interest added to the loan principal
+  [EVENT_TYPES.INTEREST_TO_ARREARS]: 0, // non-cash: unpaid interest moved to a separate arrears balance
+  [EVENT_TYPES.INTEREST_WAIVED]: 0, // non-cash: unpaid interest forgiven (never counted as income)
 };
 
 export const INTEREST_METHODS = {
@@ -98,6 +108,21 @@ export const UNPAID_INTEREST_RULES = {
   CAPITALIZE: "capitalize",
   WRITE_OFF: "write_off",
   MANUAL: "manual",
+};
+
+export const UNPAID_INTEREST_LABELS = {
+  [UNPAID_INTEREST_RULES.CARRY_FORWARD]: "Carry forward",
+  [UNPAID_INTEREST_RULES.SEPARATE_OUTSTANDING]: "Move to arrears",
+  [UNPAID_INTEREST_RULES.CAPITALIZE]: "Add to principal",
+  [UNPAID_INTEREST_RULES.WRITE_OFF]: "Waive",
+  [UNPAID_INTEREST_RULES.MANUAL]: "Decide at year end",
+};
+
+// Ledger entry recorded for each year-end treatment (carry forward needs none)
+export const UNPAID_INTEREST_EVENT = {
+  [UNPAID_INTEREST_RULES.SEPARATE_OUTSTANDING]: EVENT_TYPES.INTEREST_TO_ARREARS,
+  [UNPAID_INTEREST_RULES.CAPITALIZE]: EVENT_TYPES.INTEREST_CAPITALIZED,
+  [UNPAID_INTEREST_RULES.WRITE_OFF]: EVENT_TYPES.INTEREST_WAIVED,
 };
 
 export const PROFIT_DISTRIBUTION = {

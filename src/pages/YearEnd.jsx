@@ -4,7 +4,21 @@ import { useKopri } from "../state/KopriContext.jsx";
 import { computeYearEnd, financialYearBounds, financialYearOf, deriveAccounts } from "../lib/calculations.js";
 import { formatINR, formatDate, todayISO } from "../lib/format.js";
 import { Card, StatCard, Button, Badge, Avatar, EmptyState, Modal, NumberInput, toast } from "../components/ui.jsx";
-import { PROFIT_DISTRIBUTION } from "../lib/constants.js";
+import { PROFIT_DISTRIBUTION, UNPAID_INTEREST_RULES, UNPAID_INTEREST_LABELS } from "../lib/constants.js";
+
+// What each treatment does to the borrower's balance, in plain words.
+const ACTION_EFFECT = {
+  [UNPAID_INTEREST_RULES.CARRY_FORWARD]: "Stays on the overdue installments",
+  [UNPAID_INTEREST_RULES.SEPARATE_OUTSTANDING]: "Owed as interest arrears; no late charges",
+  [UNPAID_INTEREST_RULES.CAPITALIZE]: "Added to principal; bears interest from next period",
+  [UNPAID_INTEREST_RULES.WRITE_OFF]: "Forgiven; borrower no longer owes it",
+};
+const MANUAL_CHOICES = [
+  UNPAID_INTEREST_RULES.CARRY_FORWARD,
+  UNPAID_INTEREST_RULES.SEPARATE_OUTSTANDING,
+  UNPAID_INTEREST_RULES.CAPITALIZE,
+  UNPAID_INTEREST_RULES.WRITE_OFF,
+];
 
 export default function YearEnd() {
   const { state, saveYearEnd, settleYearEnd } = useKopri();
@@ -17,7 +31,10 @@ export default function YearEnd() {
   const fyEnd = financialYearBounds(year, fyStart).yearEndDate;
   const fyLabel = fyStart === "01-01" ? year : `${year}–${Number(year) + 1}`;
 
-  const computed = useMemo(() => computeYearEnd(state, fyEnd), [state, fyEnd]);
+  // Choices for loans whose unpaid-interest rule is "decide at year end".
+  const [interestActions, setInterestActions] = useState({});
+  const computed = useMemo(() => computeYearEnd(state, fyEnd, { interestActions }), [state, fyEnd, interestActions]);
+  const loanById = useMemo(() => Object.fromEntries(state.loans.map((l) => [l.id, l])), [state.loans]);
   const memberById = useMemo(() => Object.fromEntries(state.members.map((m) => [m.id, m])), [state.members]);
   const existing = state.yearEnds?.find((y) => y.year === year);
 
@@ -41,6 +58,9 @@ export default function YearEnd() {
   const totalPayout = result.allocations.reduce((s, a) => s + Math.max(0, a.settlement), 0);
   const totalShares = Math.round(result.allocations.reduce((s, a) => s + a.profitShare, 0) * 100) / 100;
   const sharesMatch = Math.abs(totalShares - result.distributable) < 1;
+  const unpaid = result.unpaidInterest || [];
+  const unpaidTotal = Math.round(unpaid.reduce((s, u) => s + u.amount, 0) * 100) / 100;
+  const treatedCount = unpaid.filter((u) => u.action !== UNPAID_INTEREST_RULES.CARRY_FORWARD).length;
 
   const distributionLabel = {
     [PROFIT_DISTRIBUTION.EQUAL]: "Equal shares",
@@ -261,6 +281,80 @@ export default function YearEnd() {
         </div>
       </Card>
 
+      <Card
+        title="Unpaid Interest at Year End"
+        sub={`Interest due by ${formatDate(fyEnd)} that borrowers haven't paid. Profit only counts interest actually received, so this doesn't change the split above; it changes what each borrower owes from now on.`}
+        pad
+      >
+        {unpaid.length === 0 ? (
+          <EmptyState icon="✅" title="No unpaid interest" sub="Every installment due by the year end has its interest paid." />
+        ) : (
+          <div className="table-wrap">
+            <table className="data unpaid-interest">
+              <thead>
+                <tr>
+                  <th>Loan</th>
+                  <th className="num">Unpaid interest</th>
+                  <th>Loan's rule</th>
+                  <th>What happens</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unpaid.map((u) => {
+                  const m = memberById[u.memberId];
+                  const isManual = u.rule === UNPAID_INTEREST_RULES.MANUAL;
+                  return (
+                    <tr key={u.loanId}>
+                      <td>
+                        <Link to={`/loans/${u.loanId}`} style={{ fontWeight: 650 }}>
+                          {m?.name || "Unknown"}
+                        </Link>
+                        <span className="mono muted small" style={{ marginLeft: 6 }}>
+                          {loanById[u.loanId] ? u.loanId.toUpperCase() : ""}
+                        </span>
+                      </td>
+                      <td className="num" style={{ fontWeight: 650 }}>
+                        {formatINR(u.amount, { precise: true })}
+                      </td>
+                      <td className="small">{UNPAID_INTEREST_LABELS[u.rule] || u.rule}</td>
+                      <td>
+                        {isManual && !existing ? (
+                          <select
+                            aria-label={`Unpaid interest action for ${m?.name || u.loanId}`}
+                            value={u.action}
+                            onChange={(e) => setInterestActions((a) => ({ ...a, [u.loanId]: e.target.value }))}
+                          >
+                            {MANUAL_CHOICES.map((c) => (
+                              <option key={c} value={c}>
+                                {UNPAID_INTEREST_LABELS[c]}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <b className="small">{UNPAID_INTEREST_LABELS[u.action]}</b>
+                        )}
+                        <div className="small muted">{ACTION_EFFECT[u.action]}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {unpaid.length > 0 && (
+          <div className="small muted" style={{ marginTop: 10 }}>
+            Total {formatINR(unpaidTotal, { precise: true })} on {unpaid.length} loan{unpaid.length === 1 ? "" : "s"}.{" "}
+            {existing
+              ? "Applied when the allocation was saved."
+              : treatedCount > 0
+                ? `Saving the allocation records ${treatedCount} non-cash ledger entr${treatedCount === 1 ? "y" : "ies"} for these (delete one in the ledger to undo it).`
+                : "Every loan here carries forward, so nothing extra is recorded."}{" "}
+            Change a loan's rule with <b>Edit terms</b> on the loan.
+          </div>
+        )}
+      </Card>
+
       {/* Confirm allocation */}
       <Modal
         open={confirmAllocate}
@@ -284,7 +378,14 @@ export default function YearEnd() {
       >
         <p className="muted">
           This records <b>{formatINR(result.distributable)}</b> of distributable profit as a <b>PROFIT_ALLOCATION</b> event per member in
-          the ledger. You can still edit allocations by reopening this page — the events are replaced, never duplicated.
+          the ledger.
+          {treatedCount > 0 && (
+            <>
+              {" "}
+              It also applies the year-end rule to unpaid interest on <b>{treatedCount}</b> loan{treatedCount === 1 ? "" : "s"} (no cash
+              moves).
+            </>
+          )}
         </p>
       </Modal>
 
