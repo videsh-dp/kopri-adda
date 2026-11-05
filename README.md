@@ -17,6 +17,12 @@ Open the printed URL — by default **http://localhost:5173** — in your browse
 
 The app opens pre-loaded with a **realistic demo Kopri** (7 members, 5 loans in various states — active, overdue, completed — plus contributions, repayments, expenses and last year's settlement). Everything is editable.
 
+### Live site (GitHub Pages)
+
+Every push to `master` runs `.github/workflows/deploy.yml`: it installs, runs `npm test`, builds and publishes to **https://videsh-dp.github.io/kopri-adda/**. The build uses the base path `/kopri-adda/` (set `BASE_PATH` to change it, e.g. `/` for a custom domain), and a copy of `index.html` is published as `404.html` so deep links work. `dist/` is no longer committed.
+
+The site is public, but there is no server: each visitor's data lives only in their own browser's localStorage, starting from the demo Kopri. Nothing typed in is shared with anyone else, and clearing the browser's site data erases it.
+
 ### Other commands
 
 | Command | What it does |
