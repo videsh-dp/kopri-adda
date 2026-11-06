@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconClose } from "./Icons.jsx";
 import { avatarColor, initials } from "../lib/format.js";
@@ -93,6 +93,28 @@ export function Button({ variant = "secondary", size, className = "", children, 
 
 // ---------------------------------------------------------------- Modal
 export function Modal({ open, onClose, title, children, footer, wide = false }) {
+  const overlayRef = useRef(null);
+
+  // iPhone browsers size `vh` to the screen with the toolbars hidden, so a
+  // vh-based sheet runs under the toolbar (and the keyboard) and its Save
+  // button can't be reached. Pin the overlay to the area actually visible.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const el = overlayRef.current;
+    if (!open || !vv || !el) return;
+    const apply = () => {
+      el.style.setProperty("--vvh", `${vv.height}px`);
+      el.style.setProperty("--vv-top", `${vv.offsetTop}px`);
+    };
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    return () => {
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => e.key === "Escape" && onClose?.();
@@ -106,7 +128,7 @@ export function Modal({ open, onClose, title, children, footer, wide = false }) 
 
   if (!open) return null;
   return createPortal(
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
+    <div ref={overlayRef} className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
       <div className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true">
         <div className="modal-head">
           <div className="modal-title">{title}</div>

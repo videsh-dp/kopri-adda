@@ -63,6 +63,52 @@ try {
   await sleep(400);
   ok("More → Year End navigates and closes the sheet", new URL(page.url()).pathname === "/year-end" && !(await page.$(".sheet")));
 
+  // Forms open as bottom sheets: the Save/Add footer must be on screen and
+  // date/month pickers must stay inside the form (iPhone: Add Member had no
+  // reachable Add button and its date fields stuck out).
+  const checkSheet = async (path, buttonText) => {
+    await go(path);
+    await page.evaluate((t) => [...document.querySelectorAll(".content button")].find((b) => b.innerText.trim() === t).click(), buttonText);
+    await sleep(400);
+    const r = await page.evaluate(() => {
+      const m = document.querySelector(".modal");
+      if (!m) return null;
+      const body = m.querySelector(".modal-body").getBoundingClientRect();
+      const btns = [...m.querySelectorAll(".modal-foot button")].map((b) => b.getBoundingClientRect());
+      const dates = [...m.querySelectorAll('input[type="date"], input[type="month"]')].map((i) => i.getBoundingClientRect());
+      return {
+        vh: innerHeight,
+        top: m.getBoundingClientRect().top,
+        footBottom: Math.max(...btns.map((b) => b.bottom)),
+        nBtns: btns.length,
+        datesInside: dates.every((d) => d.left >= body.left - 0.5 && d.right <= body.right + 0.5),
+        nDates: dates.length,
+        noSideways: m.querySelector(".modal-body").scrollWidth <= m.querySelector(".modal-body").clientWidth,
+      };
+    });
+    const label = `${path} "${buttonText}" sheet`;
+    if (!r) return ok(`${label} opens`, false);
+    ok(`${label}: Save/Cancel buttons on screen`, r.nBtns > 0 && r.footBottom <= r.vh && r.top >= 0, JSON.stringify(r));
+    ok(`${label}: date fields stay inside the form`, r.nDates > 0 && r.datesInside && r.noSideways, JSON.stringify(r));
+    // iPhone: visible area is shorter than 100vh (toolbars, keyboard). The
+    // sheet must follow the visible area that <Modal> reads from visualViewport.
+    const covered = await page.evaluate(() => {
+      const visible = innerHeight - 150;
+      document.querySelector(".modal-overlay").style.setProperty("--vvh", `${visible}px`);
+      const btns = [...document.querySelectorAll(".modal-foot button")].map((b) => b.getBoundingClientRect());
+      return { visible, footBottom: Math.max(...btns.map((b) => b.bottom)), top: document.querySelector(".modal").getBoundingClientRect().top };
+    });
+    ok(`${label}: buttons stay above a 150px browser toolbar`, covered.footBottom <= covered.visible && covered.top >= 0, JSON.stringify(covered));
+    await page.keyboard.press("Escape");
+    await sleep(200);
+  };
+  await checkSheet("/members", "Add member");
+  await checkSheet("/loans", "Create loan");
+  await checkSheet("/ledger", "Record transaction");
+  // Short screen (browser bars showing, or keyboard up): footer still visible
+  await page.setViewport({ width: 360, height: 520, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
+  await checkSheet("/members", "Add member");
+
   ok("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
   await browser.close();
