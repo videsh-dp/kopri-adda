@@ -554,6 +554,33 @@ table.data tbody tr:last-child td {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px;
 }
+.form-grid > * { min-width: 0; }
+
+/* Date and month pickers: iPhone draws them with its own minimum width and
+   centred text, ignoring width: 100%, so they stick out of the form */
+input[type="date"],
+input[type="month"],
+input[type="datetime-local"],
+input[type="time"] {
+  min-width: 0;
+  max-width: 100%;
+  display: block;
+}
+@supports (-webkit-touch-callout: none) {
+  input[type="date"],
+  input[type="month"],
+  input[type="datetime-local"],
+  input[type="time"] {
+    -webkit-appearance: none;
+    appearance: none;
+    text-align: left;
+  }
+  input::-webkit-date-and-time-value {
+    text-align: left;
+    margin: 0;
+    min-height: 1.5em;
+  }
+}
 
 .form-group {
   margin-bottom: 14px;
@@ -570,6 +597,12 @@ table.data tbody tr:last-child td {
 .modal-overlay {
   position: fixed;
   inset: 0;
+  /* Follow the visible area (set from visualViewport in <Modal>), so the
+     sheet stays above iPhone toolbars and the on-screen keyboard */
+  top: var(--vv-top, 0px);
+  bottom: auto;
+  height: 100vh;
+  height: var(--vvh, 100dvh);
   background: var(--overlay);
   backdrop-filter: blur(3px);
   display: grid;
@@ -586,6 +619,8 @@ table.data tbody tr:last-child td {
   width: 100%;
   max-width: 620px;
   max-height: 90vh;
+  max-height: calc(var(--vvh, 100dvh) - 40px);
+  min-height: 0;
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-lg);
@@ -611,7 +646,14 @@ table.data tbody tr:last-child td {
 .modal-body {
   padding: 20px 22px;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  flex: 1 1 auto;
+  min-height: 0;
 }
+
+.modal-head,
+.modal-foot { flex-shrink: 0; }
 
 .modal-foot {
   display: flex;
@@ -1281,6 +1323,7 @@ body.sheet-open { overflow: hidden; }
     right: 12px !important;
     min-width: 0 !important;
     max-height: calc(100vh - 160px);
+    max-height: calc(100dvh - 160px);
     overflow-y: auto !important;
   }
 
@@ -1349,6 +1392,7 @@ body.sheet-open { overflow: hidden; }
     bottom: 0;
     z-index: 51;
     max-height: 85vh;
+    max-height: 85dvh;
     overflow-y: auto;
     background: var(--bg);
     border-radius: 22px 22px 0 0;
@@ -1447,6 +1491,7 @@ body.sheet-open { overflow: hidden; }
   .modal {
     max-width: none;
     max-height: 92vh;
+    max-height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top) - 12px);
     border-radius: 22px 22px 0 0;
     border-bottom: 0;
     animation: sheetUp 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
