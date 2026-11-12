@@ -27,8 +27,15 @@ export default function KopriSwitcher() {
     const onClick = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
+    // pointerdown, not mousedown: iPhone Safari sends no mouse events for
+    // taps on plain content, so the menu would never close
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   return (
@@ -188,6 +195,7 @@ function ManageKoprisModal({ open, onClose }) {
   const [editingId, setEditingId] = useState(null);
   const [draftName, setDraftName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmReset, setConfirmReset] = useState(null);
 
   const startEdit = (k) => {
     setEditingId(k.id);
@@ -204,94 +212,110 @@ function ManageKoprisModal({ open, onClose }) {
       open={open}
       onClose={onClose}
       title="Manage Kopris"
-      wide
       footer={
         <>
           <Button onClick={onClose}>Done</Button>
         </>
       }
     >
-      <div className="table-wrap">
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Kopri</th>
-              <th className="num">Members</th>
-              <th className="num">Loans</th>
-              <th className="num">Events</th>
-              <th>Active</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {kopris.map((k) => (
-              <tr key={k.id}>
-                <td>
-                  {editingId === k.id ? (
-                    <div className="row" style={{ gap: 6 }}>
-                      <TextInput value={draftName} onChange={(e) => setDraftName(e.target.value)} autoFocus style={{ maxWidth: 220 }} onKeyDown={(e) => e.key === "Enter" && saveRename()} />
-                      <Button size="sm" variant="primary" onClick={saveRename}>
-                        Save
-                      </Button>
-                      <Button size="sm" onClick={() => setEditingId(null)}>
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="member-cell">
-                      <Avatar name={k.name} id={k.id} size="sm" />
-                      <div style={{ fontWeight: 650 }}>{k.name}</div>
-                    </div>
-                  )}
-                </td>
-                <td className="num">{k.members}</td>
-                <td className="num">{k.loans}</td>
-                <td className="num">{k.events}</td>
-                <td>
-                  <button
-                    className="btn btn-sm"
-                    style={k.active ? { background: "var(--primary-soft)", borderColor: "transparent", color: "var(--primary-text)" } : {}}
-                    onClick={() => {
-                      switchKopri(k.id);
-                    }}
-                  >
-                    {k.active ? <IconCheck width={13} height={13} /> : "Switch"}
-                  </button>
-                </td>
-                <td>
-                  <div className="row" style={{ gap: 5 }}>
-                    <button className="icon-btn" title="Rename" style={{ width: 30, height: 30 }} onClick={() => (editingId === k.id ? saveRename() : startEdit(k))}>
-                      <IconEdit width={14} height={14} />
-                    </button>
-                    <button
-                      className="icon-btn"
-                      title="Reset to demo data"
-                      style={{ width: 30, height: 30 }}
-                      onClick={() => {
-                        if (window.confirm(`Reset “${k.name}” to demo data? Its current members, loans and ledger will be replaced.`)) resetKopriDemo(k.id);
-                      }}
-                    >
-                      <IconRefresh width={14} height={14} />
-                    </button>
-                    <button
-                      className="icon-btn"
-                      title={kopris.length <= 1 ? "Can't delete the last Kopri" : "Delete Kopri"}
-                      style={{ width: 30, height: 30, color: kopris.length <= 1 ? "var(--text-faint)" : "var(--red)", opacity: kopris.length <= 1 ? 0.4 : 1 }}
-                      disabled={kopris.length <= 1}
-                      onClick={() => setConfirmDelete(k)}
-                    >
-                      <IconTrash width={14} height={14} />
-                    </button>
+      <div className="kopri-list">
+        {kopris.map((k) => (
+          <div key={k.id} className={`kopri-row ${k.active ? "active" : ""}`}>
+            {editingId === k.id ? (
+              <div className="kopri-row-main">
+                <TextInput
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  autoFocus
+                  aria-label="Kopri name"
+                  style={{ flex: 1, minWidth: 0 }}
+                  onKeyDown={(e) => e.key === "Enter" && saveRename()}
+                />
+                <Button size="sm" variant="primary" onClick={saveRename}>
+                  Save
+                </Button>
+                <Button size="sm" onClick={() => setEditingId(null)}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <div className="kopri-row-main">
+                <Avatar name={k.name} id={k.id} size="sm" />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="kopri-row-name">{k.name}</div>
+                  <div className="small faint">
+                    {k.members} members · {k.loans} loans · {k.events} events
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              </div>
+            )}
+            <div className="kopri-row-actions">
+              <button
+                className="btn btn-sm"
+                style={k.active ? { background: "var(--primary-soft)", borderColor: "transparent", color: "var(--primary-text)" } : {}}
+                onClick={() => switchKopri(k.id)}
+                disabled={k.active}
+              >
+                {k.active ? (
+                  <>
+                    <IconCheck width={13} height={13} /> Active
+                  </>
+                ) : (
+                  "Switch"
+                )}
+              </button>
+              <span className="grow" />
+              <button className="icon-btn" title="Rename" aria-label="Rename" onClick={() => (editingId === k.id ? saveRename() : startEdit(k))}>
+                <IconEdit width={16} height={16} />
+              </button>
+              <button
+                className="icon-btn"
+                title="Reset to demo data"
+                aria-label="Reset to demo data"
+                onClick={() => setConfirmReset(k)}
+              >
+                <IconRefresh width={16} height={16} />
+              </button>
+              <button
+                className="icon-btn"
+                title={kopris.length <= 1 ? "Can't delete the last Kopri" : "Delete Kopri"}
+                aria-label="Delete Kopri"
+                style={{ color: kopris.length <= 1 ? "var(--text-faint)" : "var(--red)", opacity: kopris.length <= 1 ? 0.4 : 1 }}
+                disabled={kopris.length <= 1}
+                onClick={() => setConfirmDelete(k)}
+              >
+                <IconTrash width={16} height={16} />
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
       <div className="small faint" style={{ marginTop: 10 }}>
         The active Kopri is highlighted — every page shows its data. Data for each Kopri is stored separately in this browser; when a backend arrives each Kopri becomes an isolated account ("tenant").
       </div>
+      {confirmReset && (
+        <Modal
+          open
+          onClose={() => setConfirmReset(null)}
+          title={`Reset “${confirmReset.name}”?`}
+          footer={
+            <>
+              <Button onClick={() => setConfirmReset(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  resetKopriDemo(confirmReset.id);
+                  setConfirmReset(null);
+                }}
+              >
+                Reset to demo
+              </Button>
+            </>
+          }
+        >
+          <p className="muted">Its current members, loans and ledger will be replaced with the demo data. This cannot be undone.</p>
+        </Modal>
+      )}
       {confirmDelete && (
         <Modal
           open

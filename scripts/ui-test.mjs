@@ -81,7 +81,7 @@ try {
   ok("Manage modal lists both Kopris", text.includes("Sunrise Kopri") && text.includes("Test Kopri B"));
 
   // Rename Kopri B from manage
-  const rows = await page.$$("table.data tbody tr");
+  const rows = await page.$$(".modal .kopri-row");
   // find row containing Test Kopri B
   let targetRow = null;
   for (const row of rows) {
@@ -90,9 +90,7 @@ try {
   }
   ok("found row for Test Kopri B", !!targetRow);
   if (targetRow) {
-    // first icon-btn in that row = edit
-    const btns = await targetRow.$$("td:last-child .icon-btn");
-    await btns[0].click();
+    await (await targetRow.$('button[title="Rename"]')).click();
     await sleep(200);
     await page.keyboard.down("Control");
     await page.keyboard.press("A");

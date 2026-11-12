@@ -92,6 +92,8 @@ export function Button({ variant = "secondary", size, className = "", children, 
 }
 
 // ---------------------------------------------------------------- Modal
+const openModals = [];
+
 export function Modal({ open, onClose, title, children, footer, wide = false }) {
   const overlayRef = useRef(null);
 
@@ -115,16 +117,26 @@ export function Modal({ open, onClose, title, children, footer, wide = false }) 
     };
   }, [open]);
 
+  // Modals can stack (e.g. Create Loan → New borrower, Manage Kopris →
+  // Delete). Only the top one reacts to Escape, and the page stays locked
+  // until the last one closes.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === "Escape" && onClose?.();
+    const entry = {};
+    openModals.push(entry);
+    document.body.classList.add("modal-open");
+    const onKey = (e) => {
+      if (e.key === "Escape" && openModals[openModals.length - 1] === entry) onCloseRef.current?.();
+    };
     document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      openModals.splice(openModals.indexOf(entry), 1);
+      if (!openModals.length) document.body.classList.remove("modal-open");
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return createPortal(
@@ -248,8 +260,12 @@ export function ToastHost() {
       style={{
         position: "fixed",
         bottom: "calc(84px + env(safe-area-inset-bottom, 0px))",
-        left: "50%",
-        transform: "translateX(-50%)",
+        // Centred with auto margins, not left:50% + translate: that caps the
+        // width at half the screen and wraps short messages on phones
+        left: 0,
+        right: 0,
+        marginInline: "auto",
+        width: "max-content",
         background: "var(--bg-elev)",
         border: "1px solid var(--border-strong)",
         borderRadius: 12,
@@ -259,7 +275,7 @@ export function ToastHost() {
         fontWeight: 600,
         fontSize: 13.5,
         color: "var(--text)",
-        maxWidth: "90vw",
+        maxWidth: "min(520px, calc(100vw - 32px))",
         textAlign: "center",
       }}
     >

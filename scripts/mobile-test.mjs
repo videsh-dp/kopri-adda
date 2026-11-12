@@ -108,6 +108,72 @@ try {
   // Short screen (browser bars showing, or keyboard up): footer still visible
   await page.setViewport({ width: 360, height: 520, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
   await checkSheet("/members", "Add member");
+  await page.setViewport({ width: 360, height: 780, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
+
+  // Toasts use the screen width instead of wrapping into a narrow column
+  await go("/year-end");
+  const canAllocate = await page.evaluate(() => {
+    const b = [...document.querySelectorAll(".content button")].find((x) => x.innerText.includes("Save allocation") && !x.disabled);
+    if (b) b.click();
+    return !!b;
+  });
+  ok("Year End has an allocation to save (for the toast check)", canAllocate);
+  if (canAllocate) {
+    await sleep(250);
+    await page.evaluate(() => [...document.querySelectorAll(".modal-foot button")].pop().click());
+    await sleep(300);
+    const t = await page.$eval(".toast", (n) => { const r = n.getBoundingClientRect(); return { left: r.left, right: r.right, h: r.height, vw: innerWidth }; });
+    ok("toast is on screen and not squeezed", t.left >= 0 && t.right <= t.vw && t.right - t.left > t.vw * 0.6, JSON.stringify(t));
+  }
+
+
+  // Kopri menu → Manage Kopris: the sheet stays inside the screen and every
+  // row's Switch / Rename / Reset / Delete is reachable with a finger.
+  await go("/");
+  await page.click(".kopri-switch-btn");
+  await sleep(200);
+  await page.evaluate(() => [...document.querySelectorAll(".kopri-switch-menu button")].find((b) => b.innerText.includes("New Kopri")).click());
+  await sleep(300);
+  await page.type(".modal input", "Second Kopri");
+  await page.evaluate(() => [...document.querySelectorAll(".modal-foot button")].pop().click());
+  await sleep(300);
+  await page.click(".kopri-switch-btn");
+  await sleep(200);
+  await page.evaluate(() => [...document.querySelectorAll(".kopri-switch-menu button")].find((b) => b.innerText.includes("Manage")).click());
+  await sleep(300);
+  const manage = await page.evaluate(() => {
+    const m = document.querySelector(".modal").getBoundingClientRect();
+    const btns = [...document.querySelectorAll(".modal .kopri-row button")].map((b) => b.getBoundingClientRect());
+    return {
+      vw: innerWidth,
+      left: m.left,
+      right: m.right,
+      offscreen: btns.filter((b) => b.right > innerWidth || b.left < 0).length,
+      tiny: btns.filter((b) => b.height < 36 || b.width < 36).length,
+    };
+  });
+  ok("Manage Kopris fits the screen", manage.left >= 0 && manage.right <= manage.vw, JSON.stringify(manage));
+  ok("Manage Kopris buttons are on screen and finger-sized", manage.offscreen === 0 && manage.tiny === 0, JSON.stringify(manage));
+
+  // Stacked popups: closing the top one keeps the page locked and Escape
+  // closes one popup at a time.
+  await page.evaluate(() => document.querySelector('.modal button[title="Delete Kopri"]').click());
+  await sleep(250);
+  ok("Delete opens on top of Manage Kopris", (await page.$$(".modal")).length === 2);
+  await page.keyboard.press("Escape");
+  await sleep(200);
+  const afterEsc = await page.evaluate(() => ({ modals: document.querySelectorAll(".modal").length, locked: getComputedStyle(document.body).overflow === "hidden" }));
+  ok("Escape closes only the top popup and the page stays locked", afterEsc.modals === 1 && afterEsc.locked, JSON.stringify(afterEsc));
+  await page.keyboard.press("Escape");
+  await sleep(200);
+  ok("page unlocks once the last popup closes", await page.evaluate(() => getComputedStyle(document.body).overflow !== "hidden"));
+
+  // Kopri menu closes when tapping elsewhere (iPhone sends no mousedown for plain content)
+  await page.click(".kopri-switch-btn");
+  await sleep(200);
+  await page.touchscreen.tap(180, 500);
+  await sleep(200);
+  ok("Kopri menu closes on a tap outside", !(await page.$(".kopri-switch-menu")));
 
   ok("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
