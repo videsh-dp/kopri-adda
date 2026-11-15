@@ -12,6 +12,7 @@ const FILTERS = [
   ["active", "Active"],
   ["overdue", "Overdue"],
   ["completed", "Completed"],
+  ["closed", "Closed early"],
   ["defaulted", "Defaulted"],
 ];
 

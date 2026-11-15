@@ -61,6 +61,7 @@ export function StatusBadge({ status }) {
     draft: <Badge tone="gray">Draft</Badge>,
     overdue: <Badge tone="red" dot>Overdue</Badge>,
     completed: <Badge tone="teal" dot>Completed</Badge>,
+    closed: <Badge tone="teal" dot>Closed early</Badge>,
     defaulted: <Badge tone="red" dot>Defaulted</Badge>,
     paid: <Badge tone="green">Paid</Badge>,
     due: <Badge tone="amber">Due</Badge>,

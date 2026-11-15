@@ -1696,3 +1696,44 @@ button.acct-toggle:hover { background: var(--bg-soft); color: var(--text); }
 }
 .acct-dash-link:hover { background: var(--bg-hover); }
 .acct-dash-link > svg:first-child { color: var(--primary); flex-shrink: 0; }
+
+/* Radio choice rows (late fee per EMI) */
+.choice-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  background: var(--bg-elev);
+}
+.choice-row:has(input:checked) { border-color: var(--primary); background: var(--bg-soft); }
+.choice-row input { margin-top: 2px; flex-shrink: 0; }
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  min-height: 0;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.link-btn:hover { text-decoration: underline; }
+
+/* Payment history on a loan */
+.pay-list { display: flex; flex-direction: column; }
+.pay-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+.pay-item:first-child { border-top: 0; }
+.pay-item-main { flex: 1; min-width: 0; }
+.pay-item-title { font-weight: 650; font-size: 13.5px; }
+.pay-item-amt { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pay-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
