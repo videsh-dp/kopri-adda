@@ -43,6 +43,7 @@ Once opened, the app keeps working offline because all data is already on the de
 | `npm run test:manager` | End-to-end manager workflow in headless Chrome: rules, members, borrower, deposits and late fees, referred loan, every pay mode, year end with the manager's share (dev server running) |
 | `npm run test:ui` | End-to-end UI test in headless Chrome (needs `CHROME_PATH` if Chrome isn't in the default location, and the dev server running) |
 | `npm run test:mobile` | Phone layout check in headless Chrome: every screen fits 360px, tab bar and More sheet work, PWA manifest is wired (dev server running) |
+| `npm run test:accounts` | Accounts tree in headless Chrome: totals match the dashboard, expand/collapse, details and drill-down, phone fit (dev server running) |
 
 ## Running multiple Kopris
 
