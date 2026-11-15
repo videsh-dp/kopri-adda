@@ -16,6 +16,8 @@ import {
 import {
   deriveLoan,
   computeLateCharges,
+  lateFeeFor,
+  earlyClosureQuote,
   splitPayAmount,
   memberRole,
   monthlyDepositOf,
@@ -49,7 +51,7 @@ function CalcRow({ label, value, formula, tone, strong }) {
   );
 }
 
-function InterestWorking({ loan, installment, instLeft, late, split, payMode, withLate, setWithLate }) {
+function InterestWorking({ loan, installment, instLeft, late, split, payMode, withLate, setWithLate, lateAmount, setLateAmount }) {
   const billedThisMonth = installment.interestDue;
   const carried = Number(installment.carriedIn) || 0;
   const periodInterest = Number(installment.periodInterest) || 0;
@@ -131,6 +133,8 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
           />
           <div className="small muted" style={{ margin: "6px 0 8px" }}>
             Late rule: <b>{late.lateRuleLabel}</b>
+            {late.override?.mode === "waive" && <> · <b>late fee waived</b> on this installment</>}
+            {late.override?.mode === "amount" && <> · late fee <b>set by hand</b> to {rupee(late.override.amount)} on this installment</>}
           </div>
 
           {late.isLate && late.lateRule === LATE_RULES.NORMAL_INTEREST && (
@@ -214,13 +218,27 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
         </div>
       )}
 
-      {late?.isLate && lateTotal > 0 && (
-        <label className="row" style={{ gap: 8, marginTop: 10, cursor: "pointer", alignItems: "flex-start" }}>
-          <input type="checkbox" checked={withLate} onChange={(e) => setWithLate(e.target.checked)} style={{ marginTop: 3 }} />
-          <span className="small">
-            Also collect late charges (<b>{rupee(lateTotal)}</b>) as a separate late-fee entry
-          </span>
-        </label>
+      {lateTotal > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <label className="row" style={{ gap: 8, cursor: "pointer", alignItems: "flex-start" }}>
+            <input type="checkbox" checked={withLate} onChange={(e) => setWithLate(e.target.checked)} style={{ marginTop: 3 }} />
+            <span className="small">
+              Also collect a late fee as a separate late-fee entry (worked out: <b>{rupee(lateTotal)}</b>)
+            </span>
+          </label>
+          {withLate && (
+            <div className="row late-amount-row" style={{ gap: 8, marginTop: 6, marginLeft: 24, flexWrap: "wrap" }}>
+              <span className="small muted">Late fee to collect (₹)</span>
+              <NumberInput
+                value={lateAmount}
+                min="0"
+                onChange={(e) => setLateAmount(e.target.value)}
+                style={{ maxWidth: 140 }}
+                aria-label="Late fee to collect"
+              />
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -734,7 +752,11 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
     if (!isQuickPay || !installment) return null;
     const c = computeLateCharges(loan, installment, instLeft.principal, instLeft.interest, form.date);
     const already = round2(installment.lateFeePaid || 0);
-    return { ...c, alreadyCollected: already, total: round2(Math.max(0, c.total - already)) };
+    const override = installment.lateFeeOverride || null;
+    const charges = lateFeeFor(override, c.total);
+    const lateInterest = override ? 0 : c.lateInterest;
+    const penalty = override ? charges : c.penalty;
+    return { ...c, override, lateInterest, penalty, alreadyCollected: already, total: round2(Math.max(0, charges - already)) };
   }, [isQuickPay, installment, loan, instLeft.principal, instLeft.interest, form.date]);
 
   // In "Principal + interest" mode, show how the entered amount splits.
@@ -767,8 +789,15 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
   const isTransfer = form.type === EVENT_TYPES.TRANSFER;
   const isAdjustment = form.type === EVENT_TYPES.ADJUSTMENT;
 
-  // Collect late charges with the installment payment?
+  // Collect late charges with the installment payment? The amount starts at
+  // what the rule (or the installment's override) works out and can be edited.
   const [withLate, setWithLate] = useState(true);
+  const [lateAmount, setLateAmount] = useState("");
+  const lateWorked = late?.total || 0;
+  useEffect(() => {
+    setLateAmount(lateWorked > 0 ? String(lateWorked) : "");
+  }, [lateWorked]);
+  const lateToCollect = round2(Math.max(0, Number(lateAmount) || 0));
 
   const valid =
     Number(form.amount) > 0 &&
@@ -810,12 +839,17 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
         });
       }
       // Late charges booked as a separate LATE_FEE event so reports stay clean.
-      if (withLate && late && late.total > 0) {
+      if (withLate && late && late.total > 0 && lateToCollect > 0) {
+        const edited = Math.abs(lateToCollect - late.total) > 0.005;
         addEvent({
           ...base,
           type: EVENT_TYPES.LATE_FEE,
-          amount: late.total,
-          description: late.penalty > 0 && late.lateInterest > 0
+          amount: lateToCollect,
+          description: edited
+            ? `Late fee (${late.daysLate}d late, set by hand)`
+            : late.override?.mode === "amount"
+            ? `Late fee (set for this installment)`
+            : late.penalty > 0 && late.lateInterest > 0
             ? `Late charges: ${late.daysLate}d late — interest ${formatINR(late.lateInterest)} + penalty ${formatINR(late.penalty)}`
             : late.penalty > 0
               ? `Late penalty (${late.daysLate}d late)`
@@ -839,6 +873,11 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
       base.depositMonth = /^\d{4}-\d{2}$/.test(form.depositFor || "") ? form.depositFor : "";
     } else if (isDepositFee) {
       base.depositMonth = form.depositMonth;
+    }
+    // Keep a payment tied to its installment (edits, or a fee collected from
+    // the loan page for one installment).
+    if (isLoanPayment && form.installmentIndex !== undefined && form.installmentIndex !== null && form.installmentIndex !== "") {
+      base.installmentIndex = Number(form.installmentIndex);
     }
     const payload = isTransfer
       ? { ...base, type: EVENT_TYPES.TRANSFER, from: form.from, to: form.to }
@@ -934,6 +973,8 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
                     payMode={payMode}
                     withLate={withLate}
                     setWithLate={setWithLate}
+                    lateAmount={lateAmount}
+                    setLateAmount={setLateAmount}
                   />
                 ) : (
                   <div className="small muted" style={{ marginTop: 6 }}>
@@ -1048,6 +1089,228 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
           <TextInput value={form.description} onChange={set("description")} placeholder="Short note for the ledger" />
         </Field>
       </div>
+    </Modal>
+  );
+}
+
+// ------------------------------------------------------------ Late fee for one installment
+// Decide what happens with the late fee on a single EMI: follow the loan's
+// late rule, set a fixed fee by hand (it stays owed until collected), or
+// waive it. Stored on the loan as lateFeeOverrides[index].
+export function InstallmentLateFeeModal({ open, onClose, loan, installment }) {
+  const { updateLoan } = useKopri();
+  const current = installment?.lateFeeOverride || null;
+  const [mode, setMode] = useState("rule");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setMode(current?.mode || "rule");
+      setAmount(current?.mode === "amount" ? String(current.amount) : String(installment?.lateFeeRule || loan?.lateFixedPenalty || ""));
+      setNote(current?.note || "");
+    }
+    wasOpen.current = open;
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!loan || !installment) return null;
+
+  const valid = mode !== "amount" || Number(amount) >= 0;
+  const save = () => {
+    const next = { ...(loan.lateFeeOverrides || {}) };
+    if (mode === "rule") delete next[installment.index];
+    else next[installment.index] = { mode, amount: mode === "amount" ? round2(Number(amount) || 0) : 0, note: note.trim(), setOn: todayISO() };
+    updateLoan(loan.id, { lateFeeOverrides: next });
+    onClose(mode);
+  };
+  const opt = (key, label, hint) => (
+    <label className="choice-row" key={key}>
+      <input type="radio" name="late-mode" checked={mode === key} onChange={() => setMode(key)} />
+      <span>
+        <b>{label}</b>
+        <span className="small muted" style={{ display: "block" }}>{hint}</span>
+      </span>
+    </label>
+  );
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => onClose(null)}
+      title={`Late fee · EMI #${installment.index + 1}`}
+      footer={
+        <>
+          <Button onClick={() => onClose(null)}>Cancel</Button>
+          <Button variant="primary" onClick={save} disabled={!valid}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <div className="small muted" style={{ marginBottom: 10 }}>
+        Due {formatDate(installment.dueDate)} · loan rule: <b>{(loan.lateRule || "").replace(/_/g, " ")}</b>
+        {installment.lateFeeRule > 0.005 ? <> · works out to <b>{formatINR(installment.lateFeeRule, { precise: true })}</b> today</> : null}
+        {installment.lateFeePaid > 0.005 ? <> · {formatINR(installment.lateFeePaid, { precise: true })} already collected</> : null}
+      </div>
+      <div className="stack" style={{ gap: 8 }}>
+        {opt("rule", "Follow the loan's late rule", "The fee builds up while this EMI is overdue, as set in the loan terms.")}
+        {opt("amount", "Set a late fee for this EMI", "A fixed fee that stays owed on this EMI until it is collected or waived.")}
+        {opt("waive", "Waive the late fee", "No late fee on this EMI, however late it is paid.")}
+      </div>
+      <div className="form-grid" style={{ marginTop: 12 }}>
+        {mode === "amount" && (
+          <Field label="Late fee (₹)">
+            <NumberInput value={amount} min="0" onChange={(e) => setAmount(e.target.value)} />
+          </Field>
+        )}
+        {mode !== "rule" && (
+          <Field label="Reason (optional)" className="grow" style={{ gridColumn: "1 / -1" }}>
+            <TextInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. agreed at the meeting" />
+          </Field>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ------------------------------------------------------------ Early closure
+// Close a loan before its tenure ends: the borrower pays the principal still
+// out plus interest up to the closing date (and any late fees). The manager
+// can change the interest and late-fee amounts. Interest on the remaining
+// EMIs is not charged. The payments are booked as normal ledger entries
+// tagged `closure: true`, and the loan records closedOn + closure details.
+export function EarlyCloseModal({ open, onClose, loan }) {
+  const { state, addEvent, updateLoan } = useKopri();
+  const [date, setDate] = useState(todayISO());
+  const [interest, setInterest] = useState("");
+  const [lateFee, setLateFee] = useState("");
+  const [account, setAccount] = useState(ACCOUNTS.CASH);
+  const [note, setNote] = useState("");
+  const quote = useMemo(() => (loan ? earlyClosureQuote(loan, state.events, date) : null), [loan, state.events, date]);
+
+  // Reset the editable amounts whenever the quote changes (new date).
+  useEffect(() => {
+    if (!quote) return;
+    setInterest(String(quote.interest));
+    setLateFee(String(quote.lateFees));
+  }, [quote?.interest, quote?.lateFees]); // eslint-disable-line react-hooks/exhaustive-deps
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setDate(todayISO());
+      setAccount(ACCOUNTS.CASH);
+      setNote("");
+    }
+    wasOpen.current = open;
+  }, [open]);
+  if (!loan || !quote) return null;
+
+  const interestAmt = round2(Math.max(0, Number(interest) || 0));
+  const lateAmt = round2(Math.max(0, Number(lateFee) || 0));
+  const total = round2(quote.principal + interestAmt + lateAmt);
+  const valid = quote.canClose && date && date <= todayISO() && Number(interest) >= 0 && Number(lateFee) >= 0;
+  const changed = Math.abs(interestAmt - quote.interest) > 0.005 || Math.abs(lateAmt - quote.lateFees) > 0.005;
+
+  const submit = () => {
+    if (!valid) return;
+    const base = { date, account, memberId: loan.memberId, loanId: loan.id, closure: true };
+    const tail = note.trim() ? ` (${note.trim()})` : "";
+    if (quote.principal > 0) {
+      addEvent({ ...base, type: EVENT_TYPES.PRINCIPAL_PAYMENT, amount: quote.principal, description: `Early closure — principal${tail}` });
+    }
+    const arrearsPart = round2(Math.min(interestAmt, quote.arrears));
+    if (arrearsPart > 0) {
+      addEvent({ ...base, type: EVENT_TYPES.INTEREST_PAYMENT, amount: arrearsPart, arrears: true, description: `Early closure — interest arrears${tail}` });
+    }
+    const interestPart = round2(interestAmt - arrearsPart);
+    if (interestPart > 0) {
+      addEvent({ ...base, type: EVENT_TYPES.INTEREST_PAYMENT, amount: interestPart, description: `Early closure — interest to ${formatDate(date)}${tail}` });
+    }
+    if (lateAmt > 0) {
+      addEvent({ ...base, type: EVENT_TYPES.LATE_FEE, amount: lateAmt, description: `Early closure — late fees${tail}` });
+    }
+    updateLoan(loan.id, {
+      closedOn: date,
+      closure: {
+        principal: quote.principal,
+        interest: interestAmt,
+        lateFee: lateAmt,
+        quotedInterest: quote.interest,
+        quotedLateFee: quote.lateFees,
+        note: note.trim(),
+      },
+    });
+    onClose(true);
+  };
+
+  const row = (label, value, opts = {}) => (
+    <CalcRow label={label} value={value} formula={opts.formula} strong={opts.strong} tone={opts.tone} />
+  );
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => onClose(false)}
+      title="Close loan early"
+      footer={
+        <>
+          <Button onClick={() => onClose(false)}>Cancel</Button>
+          <Button variant="primary" onClick={submit} disabled={!valid}>
+            Record payoff &amp; close
+          </Button>
+        </>
+      }
+    >
+      <div className="form-grid">
+        <Field label="Closing date">
+          <input type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="Account">
+          <select value={account} onChange={(e) => setAccount(e.target.value)}>
+            <option value={ACCOUNTS.CASH}>Cash</option>
+            <option value={ACCOUNTS.BANK}>Bank</option>
+          </select>
+        </Field>
+      </div>
+
+      <div className="calc-box" style={{ marginTop: 12 }}>
+        <div className="calc-head">Payoff on {formatDate(date)}</div>
+        {row("Principal still out", rupee(quote.principal))}
+        {quote.dueInterest > 0.005 && row("Interest due on EMIs already past due", rupee(quote.dueInterest))}
+        {row(
+          "Interest for the current period so far",
+          rupee(quote.accruedInterest),
+          { formula: quote.accruedDays > 0 ? `${quote.accruedDays} day${quote.accruedDays === 1 ? "" : "s"} since the last due date` : undefined }
+        )}
+        {quote.arrears > 0.005 && row("Interest arrears from a year end", rupee(quote.arrears))}
+        {row("Interest worked out", rupee(quote.interest), { strong: true })}
+        {quote.lateFees > 0.005 && row("Late fees built up", rupee(quote.lateFees), { tone: "var(--amber)" })}
+        {quote.interestSaved > 0.5 && (
+          <div className="small muted" style={{ marginTop: 6 }}>
+            Interest on the remaining EMIs ({rupee(quote.interestSaved)}) is not charged.
+          </div>
+        )}
+      </div>
+
+      <div className="form-grid" style={{ marginTop: 12 }}>
+        <Field label="Interest to collect (₹)" hint="Change it if the kopri agreed a different amount">
+          <NumberInput value={interest} min="0" onChange={(e) => setInterest(e.target.value)} />
+        </Field>
+        <Field label="Late fees to collect (₹)" hint="Set 0 to waive">
+          <NumberInput value={lateFee} min="0" onChange={(e) => setLateFee(e.target.value)} />
+        </Field>
+        <Field label="Note (optional)" className="grow" style={{ gridColumn: "1 / -1" }}>
+          <TextInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. paid off after selling the boat" />
+        </Field>
+      </div>
+
+      <div className="alert alert-blue" style={{ marginTop: 12 }}>
+        <b>Collect {rupee(total)} today</b>
+        <div className="small" style={{ marginTop: 4 }}>
+          {rupee(quote.principal)} principal + {rupee(interestAmt)} interest{lateAmt > 0 ? ` + ${rupee(lateAmt)} late fees` : ""}.
+          {changed ? " Amounts changed from the worked-out figures." : ""} The loan is then marked closed early.
+        </div>
+      </div>
+      {!quote.canClose && <div className="small muted" style={{ marginTop: 8 }}>Nothing is left to pay on this loan.</div>}
     </Modal>
   );
 }

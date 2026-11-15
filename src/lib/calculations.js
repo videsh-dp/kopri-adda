@@ -277,6 +277,10 @@ export function deriveLoan(loan, events, today = todayISO()) {
   const isWrittenOff = principalWrittenOff > 0.5 && outstandingPrincipal <= 0.5;
 
   const grace = Number(loan.gracePeriodDays) || 0;
+  // Early closure: once the closing date has passed, whatever interest is
+  // still unpaid on the schedule is forgiven (the manager agreed a payoff).
+  const closure = loan.closedOn && loan.closedOn <= today ? { ...(loan.closure || {}), date: loan.closedOn } : null;
+  const lateOverrides = loan.lateFeeOverrides || {};
   let overduePrincipal = 0;
   let overdueInterest = 0;
   let overdueDaysMax = 0;
@@ -286,7 +290,9 @@ export function deriveLoan(loan, events, today = todayISO()) {
     const principalLeft = round2(Math.max(0, inst.principalDue - paid.principal));
     const interestLeft = round2(Math.max(0, inst.interestDue - paid.interest));
     const due = daysBetween(inst.dueDate, today);
-    const overdue = !isWrittenOff && principalLeft + interestLeft > 0.5 && due > grace;
+    const open = principalLeft + interestLeft > 0.5;
+    const closed = !!closure && open;
+    const overdue = !isWrittenOff && !closure && open && due > grace;
     if (overdue) {
       overduePrincipal += principalLeft;
       overdueInterest += interestLeft;
@@ -294,8 +300,12 @@ export function deriveLoan(loan, events, today = todayISO()) {
     }
     // Late charges built up so far on what is still unpaid, less any late
     // fee already collected on this installment.
-    const lateCharges = overdue ? computeLateCharges(loan, inst, principalLeft, interestLeft, today).total : 0;
-    const lateFeeDue = round2(Math.max(0, lateCharges - paid.lateFee));
+    // A manager can override the late fee on one installment: waive it, or
+    // set a fixed amount that stays owed until it is collected or waived.
+    const ruleCharges = overdue ? computeLateCharges(loan, inst, principalLeft, interestLeft, today).total : 0;
+    const override = lateOverrides[i] || null;
+    const lateCharges = lateFeeFor(override, ruleCharges);
+    const lateFeeDue = closure || isWrittenOff ? 0 : round2(Math.max(0, lateCharges - paid.lateFee));
     return {
       ...inst,
       principalPaid: round2(paid.principal),
@@ -303,15 +313,20 @@ export function deriveLoan(loan, events, today = todayISO()) {
       interestCleared: round2(paid.interestCleared),
       lateFeePaid: round2(paid.lateFee),
       lateFeeDue,
+      lateFeeRule: round2(ruleCharges),
+      lateFeeOverride: override,
       principalLeft: round2(principalLeft),
-      interestLeft: round2(interestLeft),
-      status: principalLeft + interestLeft <= 0.5 ? "paid" : isWrittenOff ? "written_off" : overdue ? "overdue" : "due",
+      interestLeft: closed ? 0 : round2(interestLeft),
+      interestForgiven: closed ? round2(interestLeft) : 0,
+      status: !open ? "paid" : isWrittenOff ? "written_off" : closed ? "closed" : overdue ? "overdue" : "due",
       overdueDays: overdue ? due : 0,
     };
   });
 
   const fullyPaid =
     !isWrittenOff && outstandingPrincipal <= 0.5 && interestArrears <= 0.5 && installments.every((i) => i.status === "paid");
+  const closedEarly = !!closure && !isWrittenOff && outstandingPrincipal <= 0.5;
+  const arrearsOwed = closure ? 0 : interestArrears;
   const isOverdue = overduePrincipal + overdueInterest > 0.5;
 
   return {
@@ -326,11 +341,14 @@ export function deriveLoan(loan, events, today = todayISO()) {
     isWrittenOff,
     interestCapitalized,
     interestToArrears: round2(treated.arrears),
-    interestArrears,
+    interestArrears: arrearsOwed,
     interestWaived: round2(treated.waived),
     totalPrincipal,
     outstandingPrincipal,
-    totalOutstanding: round2(outstandingPrincipal + overdueInterest + interestArrears),
+    totalOutstanding: round2(outstandingPrincipal + overdueInterest + arrearsOwed),
+    closure,
+    closedEarly,
+    interestForgiven: round2(installments.reduce((a, i) => a + i.interestForgiven, 0)),
     overduePrincipal: round2(overduePrincipal),
     overdueInterest: round2(overdueInterest),
     overdueDaysMax,
@@ -339,7 +357,9 @@ export function deriveLoan(loan, events, today = todayISO()) {
     effectiveStatus:
       loan.status === "defaulted" || isWrittenOff
         ? "defaulted"
-        : loan.status === "completed" || fullyPaid
+        : closedEarly
+          ? "closed"
+          : loan.status === "completed" || fullyPaid
           ? "completed"
           : isOverdue
             ? "overdue"
@@ -347,6 +367,62 @@ export function deriveLoan(loan, events, today = todayISO()) {
     totalInterestDue: round2(schedule.reduce((a, i) => a + i.interestDue, 0)),
     totalPrincipalDue: round2(schedule.reduce((a, i) => a + i.principalDue, 0)),
     paidRatio: totalPrincipal > 0 ? clamp(principalPaid / totalPrincipal, 0, 1) : 0,
+  };
+}
+
+// The late fee owed on one installment, given the rule's figure and any
+// per-installment override ({ mode: "waive" } or { mode: "amount", amount }).
+export function lateFeeFor(override, ruleCharges) {
+  if (!override) return ruleCharges;
+  if (override.mode === "waive") return 0;
+  if (override.mode === "amount") return Math.max(0, Number(override.amount) || 0);
+  return ruleCharges;
+}
+
+// What it takes to close a loan early on `asOf`: the principal still out,
+// interest billed and unpaid on installments already due, interest accrued
+// on the current period up to `asOf`, any interest arrears, and late fees
+// built up. Interest on the remaining installments is not charged.
+export function earlyClosureQuote(loan, events, asOf = todayISO()) {
+  const v = deriveLoan({ ...loan, closedOn: null, closure: null }, events, asOf);
+  const principal = v.outstandingPrincipal;
+  const dueInterest = round2(
+    v.installments.filter((i) => i.dueDate <= asOf).reduce((a, i) => a + i.interestLeft, 0)
+  );
+  const cur = v.installments.find((i) => i.dueDate > asOf) || null;
+  let accruedInterest = 0;
+  let accruedDays = 0;
+  if (cur && principal > 0.5) {
+    const start = cur.index === 0 ? loan.startDate : v.installments[cur.index - 1].dueDate;
+    accruedDays = Math.max(0, daysBetween(start, asOf));
+    const r = monthlyRate(loan) / 100;
+    const method = loan.interestMethod || INTEREST_METHODS.REDUCING_BALANCE;
+    // Flat interest runs on the original principal; reducing and daily on
+    // what is actually still out.
+    const base = method === INTEREST_METHODS.FLAT ? v.totalPrincipal : principal;
+    let period = base * r * (accruedDays / 30);
+    if (method !== INTEREST_METHODS.DAILY_OUTSTANDING) period = Math.min(period, base * r);
+    // Interest accrued in earlier months of a quarterly / at-closure collection
+    // that has not been billed yet, less anything already paid toward it.
+    const paidAhead = Math.max(0, cur.interestPaid + cur.interestCleared);
+    accruedInterest = round2(Math.max(0, period + (Number(cur.carriedIn) || 0) - paidAhead));
+  }
+  const arrears = v.interestArrears;
+  const interest = round2(dueInterest + accruedInterest + arrears);
+  const lateFees = v.lateFeesDue;
+  const scheduledInterestLeft = round2(v.installments.reduce((a, i) => a + i.interestLeft, 0));
+  return {
+    asOf,
+    principal,
+    dueInterest,
+    accruedInterest,
+    accruedDays,
+    arrears,
+    interest,
+    lateFees,
+    total: round2(principal + interest + lateFees),
+    interestSaved: round2(Math.max(0, scheduledInterestLeft + arrears - interest)),
+    canClose: !v.isWrittenOff && principal + interest > 0.5,
   };
 }
 
@@ -577,7 +653,7 @@ export function derivePortfolio(state) {
     lateFeesCollected,
     lateFeesDue,
     activeLoans: loanViews.filter((l) => l.effectiveStatus === "active" || l.effectiveStatus === "overdue").length,
-    completedLoans: loanViews.filter((l) => l.effectiveStatus === "completed").length,
+    completedLoans: loanViews.filter((l) => l.effectiveStatus === "completed" || l.effectiveStatus === "closed").length,
     overdueLoans: loanViews.filter((l) => l.isOverdue).length,
     membersActive: members.filter((m) => m.status === "active").length,
     depositorsActive: members.filter((m) => m.status === "active" && isDepositor(m)).length,

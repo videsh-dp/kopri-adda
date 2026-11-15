@@ -16,6 +16,8 @@ import {
   computeLateCharges,
   unpaidInterestAtYearEnd,
   unpaidInterestEvents,
+  earlyClosureQuote,
+  lateFeeFor,
 } from "../src/lib/calculations.js";
 import { DEFAULT_RULES } from "../src/lib/constants.js";
 import { rootReducer, createBook, normalizeBook } from "../src/state/kopriStore.js";
@@ -437,6 +439,66 @@ const ye = (events, rules = {}, extra = {}) =>
   root = rootReducer(root, { type: "SAVE_YEAR_END", yearEnd: yeRec() });
   const caps = book().events.filter((e) => e.type === "INTEREST_CAPITALIZED");
   ok("saving the year end records one entry per treated loan (re-save replaces it)", caps.length === 1 && caps[0].amount === 220 && caps[0].yearEnd === "2024");
+}
+
+// ------------------------------------------------- Per-EMI late fees + early close
+{
+  const L = { ...loan, id: "EC" };
+  const pay = (i, date) => [
+    ev({ date, type: "PRINCIPAL_PAYMENT", loanId: "EC", installmentIndex: i.index, amount: i.principalDue }),
+    ev({ date, type: "INTEREST_PAYMENT", loanId: "EC", installmentIndex: i.index, amount: i.interestDue }),
+  ];
+  const sched = buildSchedule(L);
+
+  // Late fee overrides on single EMIs
+  ok("lateFeeFor: no override follows the rule", lateFeeFor(null, 12) === 12);
+  ok("lateFeeFor: waive is zero", lateFeeFor({ mode: "waive" }, 12) === 0);
+  ok("lateFeeFor: amount replaces the rule", lateFeeFor({ mode: "amount", amount: 75 }, 12) === 75);
+  const base = deriveLoan(L, [], "2025-04-01");
+  ok("rule late fees on two overdue EMIs = 26.67 + 8", near(base.lateFeesDue, 34.67), base.lateFeesDue);
+  const waived = deriveLoan({ ...L, lateFeeOverrides: { 0: { mode: "waive" } } }, [], "2025-04-01");
+  ok("waiving EMI 1 leaves only EMI 2's fee", near(waived.lateFeesDue, 8), waived.lateFeesDue);
+  const set = deriveLoan({ ...L, lateFeeOverrides: { 1: { mode: "amount", amount: 50 } } }, [], "2025-04-01");
+  ok("a fee set by hand on EMI 2 replaces its rule fee", near(set.installments[1].lateFeeDue, 50) && near(set.lateFeesDue, 76.67), set.lateFeesDue);
+  const paidLate = deriveLoan({ ...L, lateFeeOverrides: { 0: { mode: "amount", amount: 100 } } }, pay(sched[0], "2025-03-10"), "2025-03-12");
+  ok("a fee set by hand stays owed after the EMI is paid", paidLate.installments[0].status === "paid" && paidLate.installments[0].lateFeeDue === 100);
+  const feePaid = deriveLoan({ ...L, lateFeeOverrides: { 0: { mode: "amount", amount: 100 } } }, [...pay(sched[0], "2025-03-10"), ev({ date: "2025-03-11", type: "LATE_FEE", loanId: "EC", installmentIndex: 0, amount: 100 })], "2025-03-12");
+  ok("…and clears once collected", feePaid.installments[0].lateFeeDue === 0);
+
+  // Early close, on time: principal + interest for the days so far this period
+  const onTime = [...pay(sched[0], "2025-02-15"), ...pay(sched[1], "2025-03-15")];
+  const q = earlyClosureQuote(L, onTime, "2025-04-01");
+  ok("payoff principal = 10000 still out", q.principal === 10000, q.principal);
+  ok("payoff interest = 10000 × 2% × 17/30 = 113.33", near(q.interest, 113.33) && q.dueInterest === 0, q.interest);
+  ok("interest on later EMIs is not charged (1100 − 113.33)", near(q.interestSaved, 986.67), q.interestSaved);
+  const closeEvents = [
+    ...onTime,
+    ev({ date: "2025-04-01", type: "PRINCIPAL_PAYMENT", loanId: "EC", amount: q.principal, closure: true }),
+    ev({ date: "2025-04-01", type: "INTEREST_PAYMENT", loanId: "EC", amount: q.interest, closure: true }),
+  ];
+  const closed = deriveLoan({ ...L, closedOn: "2025-04-01", closure: { principal: q.principal, interest: q.interest } }, closeEvents, "2025-06-01");
+  ok("closed loan shows as closed early", closed.effectiveStatus === "closed" && closed.closedEarly, closed.effectiveStatus);
+  ok("closed loan has nothing outstanding or overdue", closed.outstandingPrincipal === 0 && !closed.isOverdue && closed.lateFeesDue === 0);
+  ok("closed loan records the interest forgiven", near(closed.interestForgiven, 986.67), closed.interestForgiven);
+  ok("closed EMIs are marked closed, not due", closed.installments.slice(2).every((i) => i.status === "paid" || i.status === "closed"));
+  const before = deriveLoan({ ...L, closedOn: "2025-04-01" }, closeEvents.slice(0, 4), "2025-03-20");
+  ok("closure doesn't apply before its date", before.effectiveStatus === "active", before.effectiveStatus);
+
+  // Early close while behind: unpaid past interest + accrued + late fees
+  const q2 = earlyClosureQuote(L, [], "2025-04-01");
+  ok("behind: past-due interest 240 + 220", q2.dueInterest === 460, q2.dueInterest);
+  ok("behind: accrued 12000 × 2% × 17/30 = 136", near(q2.accruedInterest, 136), q2.accruedInterest);
+  ok("behind: late fees included", near(q2.lateFees, 34.67) && near(q2.total, 12000 + 596 + 34.67), q2.total);
+  // Manager settles for less interest: the rest is forgiven, loan closes
+  const discounted = deriveLoan({ ...L, closedOn: "2025-04-01" }, [
+    ev({ date: "2025-04-01", type: "PRINCIPAL_PAYMENT", loanId: "EC", amount: 12000, closure: true }),
+    ev({ date: "2025-04-01", type: "INTEREST_PAYMENT", loanId: "EC", amount: 400, closure: true }),
+  ], "2025-04-02");
+  ok("discounted payoff still closes the loan", discounted.effectiveStatus === "closed" && discounted.totalOutstanding === 0);
+  ok("closed loans drop out of year-end unpaid interest", unpaidInterestAtYearEnd({ loans: [{ ...L, closedOn: "2025-04-01" }], events: discounted.installments.length ? [
+    ev({ date: "2025-04-01", type: "PRINCIPAL_PAYMENT", loanId: "EC", amount: 12000, closure: true }),
+    ev({ date: "2025-04-01", type: "INTEREST_PAYMENT", loanId: "EC", amount: 400, closure: true }),
+  ] : [], rules: DEFAULT_RULES }, "2026-03-31").length === 0);
 }
 
 function round(x) {

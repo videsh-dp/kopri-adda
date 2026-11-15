@@ -4,9 +4,16 @@ import { useKopri } from "../state/KopriContext.jsx";
 import { deriveLoan, deriveMember } from "../lib/calculations.js";
 import { formatINR, formatDate, round2, todayISO } from "../lib/format.js";
 import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState, ConfirmModal, Modal, Field, NumberInput, toast } from "../components/ui.jsx";
-import { LoanFormModal, EventFormModal } from "../components/modals.jsx";
+import { LoanFormModal, EventFormModal, InstallmentLateFeeModal, EarlyCloseModal } from "../components/modals.jsx";
 import { IconArrow, IconPlus, IconEdit, IconTrash } from "../components/Icons.jsx";
 import { EVENT_TYPES, UNPAID_INTEREST_LABELS, UNPAID_INTEREST_RULES } from "../lib/constants.js";
+
+const PAY_LABEL = {
+  [EVENT_TYPES.PRINCIPAL_PAYMENT]: "Principal",
+  [EVENT_TYPES.INTEREST_PAYMENT]: "Interest",
+  [EVENT_TYPES.LATE_FEE]: "Late fee",
+  [EVENT_TYPES.LOAN_WRITE_OFF]: "Write-off",
+};
 
 const PAYMENT_TYPES = [EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE];
 
@@ -20,6 +27,9 @@ export default function LoanDetail() {
   const [editEvent, setEditEvent] = useState(null); // event being edited
   const [deleteConfirm, setDeleteConfirm] = useState(null); // event pending delete
   const [showEdit, setShowEdit] = useState(false);
+  const [lateFeeFor, setLateFeeFor] = useState(null); // installment index whose late fee is being set
+  const [showClose, setShowClose] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
 
   const loan = state.loans.find((l) => l.id === id);
   const view = useMemo(() => (loan ? deriveLoan(loan, state.events) : null), [loan, state.events]);
@@ -40,6 +50,14 @@ export default function LoanDetail() {
       map.set(e.installmentIndex, arr);
     }
     return map;
+  }, [loan, state.events]);
+
+  // Every payment on this loan, newest first, for the payment history.
+  const payments = useMemo(() => {
+    if (!loan) return [];
+    return state.events
+      .filter((e) => e.loanId === loan.id && (PAYMENT_TYPES.includes(e.type) || e.type === EVENT_TYPES.LOAN_WRITE_OFF))
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (a.createdAt || "") < (b.createdAt || "") ? 1 : -1));
   }, [loan, state.events]);
 
   if (!loan || !view) {
@@ -103,7 +121,7 @@ export default function LoanDetail() {
           <Button size="sm" variant="ghost" onClick={() => setShowEdit(true)}>
             Edit terms
           </Button>
-          {!view.isWrittenOff && (
+          {!view.isWrittenOff && !view.closure && (
             <Button
               size="sm"
               variant="ghost"
@@ -116,10 +134,22 @@ export default function LoanDetail() {
               {loan.status === "defaulted" ? "Clear default" : "Mark defaulted"}
             </Button>
           )}
-          {view.outstandingPrincipal > 0.5 && (
+          {view.outstandingPrincipal > 0.5 && !view.closure && (
             <Button size="sm" variant="ghost" onClick={() => setConfirmWriteOff(true)}>
               Write off
             </Button>
+          )}
+          {view.closure ? (
+            <Button size="sm" variant="ghost" onClick={() => setConfirmReopen(true)}>
+              Undo early close
+            </Button>
+          ) : (
+            !view.isWrittenOff &&
+            view.outstandingPrincipal > 0.5 && (
+              <Button size="sm" variant="ghost" onClick={() => setShowClose(true)}>
+                Close early
+              </Button>
+            )
           )}
           <Button
             size="sm"
@@ -171,7 +201,16 @@ export default function LoanDetail() {
             </div>
           </div>
         </div>
-        {nextDue && (
+        {view.closure && (
+          <div className="alert alert-blue" style={{ marginTop: 14 }}>
+            <b>Closed early on {formatDate(view.closure.date)}.</b>{" "}
+            Paid off {formatINR(view.closure.principal || 0, { precise: true })} principal + {formatINR(view.closure.interest || 0, { precise: true })} interest
+            {view.closure.lateFee > 0.005 ? <> + {formatINR(view.closure.lateFee, { precise: true })} late fees</> : null}.
+            {view.interestForgiven > 0.5 ? <> Interest not charged on the remaining EMIs: {formatINR(view.interestForgiven, { precise: true })}.</> : null}
+            {view.closure.note ? <> Note: {view.closure.note}</> : null}
+          </div>
+        )}
+        {nextDue && !view.closure && (
           <div className={`alert ${nextDue.status === "overdue" ? "alert-red" : "alert-blue"}`} style={{ marginTop: 14 }}>
             {nextDue.status === "overdue" ? (
               <b>
@@ -259,6 +298,9 @@ export default function LoanDetail() {
                       <td className="num">{formatINR(i.principalDue)}</td>
                       <td className="num">
                         {formatINR(i.interestDue)}
+                        {i.interestForgiven > 0.005 && (
+                          <div className="small muted">{formatINR(i.interestForgiven, { precise: true })} not charged (closed early)</div>
+                        )}
                         {i.interestCleared > 0.005 && (
                           <div className="small muted" title="Unpaid interest treated at a year end (capitalized, moved to arrears or waived)">
                             {formatINR(i.interestCleared, { precise: true })} settled at year end
@@ -269,12 +311,42 @@ export default function LoanDetail() {
                       <td className="num mono">{formatINR(i.principalPaid + i.interestPaid)}</td>
                       <td>
                         <StatusBadge status={i.status} />
+                        {i.lateFeeOverride?.mode === "waive" && <div className="small muted">Late fee waived</div>}
+                        {i.lateFeeOverride?.mode === "amount" && (
+                          <div className="small muted">Late fee {formatINR(i.lateFeeOverride.amount, { precise: true })} (set)</div>
+                        )}
+                        {i.lateFeePaid > 0.005 && <div className="small muted">{formatINR(i.lateFeePaid, { precise: true })} fee paid</div>}
+                        {!view.closure && !view.isWrittenOff && (
+                          <button type="button" className="link-btn" onClick={() => setLateFeeFor(i.index)} title="Follow the rule, set a fee or waive it for this EMI">
+                            Late fee…
+                          </button>
+                        )}
                       </td>
                       <td className="num" style={{ whiteSpace: "nowrap" }}>
                         <div className="row" style={{ justifyContent: "flex-end", gap: 4 }}>
-                          {i.status !== "paid" && (
+                          {i.status !== "paid" && i.status !== "closed" && (
                             <Button size="sm" variant="ghost" onClick={() => openQuickPay(i)} title="Record payment for this installment">
                               Pay
+                            </Button>
+                          )}
+                          {i.status === "paid" && i.lateFeeDue > 0.005 && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Collect the late fee still owed on this installment"
+                              onClick={() =>
+                                setShowRepay({
+                                  type: EVENT_TYPES.LATE_FEE,
+                                  memberId: loan.memberId,
+                                  loanId: loan.id,
+                                  installmentIndex: i.index,
+                                  amount: String(i.lateFeeDue),
+                                  date: todayISO(),
+                                  description: `Late fee, installment ${i.index + 1}`,
+                                })
+                              }
+                            >
+                              Collect fee
                             </Button>
                           )}
                           {recorded.map((ev) => (
@@ -306,7 +378,7 @@ export default function LoanDetail() {
             </table>
           </div>
           <div className="small faint" style={{ padding: "8px 14px" }}>
-            ✎ edits a payment recorded against that installment · 🗑 removes it · Pay lets you pay principal, interest or both, in full or in part, plus any late fee
+            ✎ edits a payment recorded against that installment · 🗑 removes it · Pay lets you pay principal, interest or both, in full or in part, plus any late fee · Late fee… sets, waives or resets the fee on one EMI
           </div>
         </Card>
 
@@ -325,6 +397,10 @@ export default function LoanDetail() {
                 ...(loan.lateRule === "fixed_penalty" ? [["Late fee", `${formatINR(loan.lateFixedPenalty)} / installment`]] : []),
                 ...(loan.lateRule === "percentage_penalty" ? [["Late fee", `${loan.latePercentagePenalty}% of overdue`]] : []),
                 ...(loan.lateRule === "additional_interest" ? [["Extra late interest", `${loan.lateAdditionalInterestRate}% / month`]] : []),
+                ...(Object.keys(loan.lateFeeOverrides || {}).length
+                  ? [["Late fee changed on", `${Object.keys(loan.lateFeeOverrides).length} EMI${Object.keys(loan.lateFeeOverrides).length === 1 ? "" : "s"}`]]
+                  : []),
+                ...(view.closure ? [["Closed early", formatDate(view.closure.date)]] : []),
                 ["Unpaid interest at year end", UNPAID_INTEREST_LABELS[loan.unpaidInterestRule || state.rules.unpaidInterestRule || UNPAID_INTEREST_RULES.CARRY_FORWARD]],
               ].map(([k, v]) => (
                 <div className="spread" key={k}>
@@ -370,6 +446,89 @@ export default function LoanDetail() {
           </Card>
         </div>
       </div>
+
+      <Card title="Payments recorded" sub={`${payments.length} entr${payments.length === 1 ? "y" : "ies"} · every EMI payment, late fee and payoff on this loan`} pad={false}>
+        {payments.length === 0 ? (
+          <div className="small muted" style={{ padding: 14 }}>No payments recorded yet.</div>
+        ) : (
+          <div className="pay-list">
+            {payments.map((ev) => (
+              <div className="pay-item" key={ev.id}>
+                <div className="pay-item-main">
+                  <div className="pay-item-title">
+                    {PAY_LABEL[ev.type]}
+                    {ev.arrears ? " (arrears)" : ""}
+                    <span className="muted" style={{ fontWeight: 500 }}>
+                      {" · "}
+                      {ev.closure
+                        ? "early closure"
+                        : ev.installmentIndex !== undefined && ev.installmentIndex !== null
+                          ? `EMI #${ev.installmentIndex + 1}`
+                          : "not tied to an EMI"}
+                    </span>
+                  </div>
+                  <div className="small muted">
+                    {formatDate(ev.date)} · {ev.account === "bank" ? "Bank" : "Cash"}
+                    {ev.description ? ` · ${ev.description}` : ""}
+                  </div>
+                </div>
+                <div className="pay-item-amt">{formatINR(ev.amount, { precise: true })}</div>
+                {ev.type !== EVENT_TYPES.LOAN_WRITE_OFF && !ev.closure && (
+                  <div className="pay-item-actions">
+                    <button className="btn btn-sm btn-ghost" onClick={() => setEditEvent(ev)} title="Edit this payment" style={{ padding: "4px 8px", borderRadius: 8 }}>
+                      <IconEdit width={13} height={13} />
+                    </button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => setDeleteConfirm(ev)}
+                      title="Delete this payment"
+                      style={{ padding: "4px 8px", borderRadius: 8, color: "var(--red)" }}
+                    >
+                      <IconTrash width={13} height={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <InstallmentLateFeeModal
+        open={lateFeeFor !== null}
+        loan={loan}
+        installment={lateFeeFor !== null ? view.installments[lateFeeFor] : null}
+        onClose={(mode) => {
+          setLateFeeFor(null);
+          if (mode) toast(mode === "waive" ? "Late fee waived on this EMI." : mode === "amount" ? "Late fee set for this EMI." : "This EMI follows the loan's late rule again.");
+        }}
+      />
+      <EarlyCloseModal
+        open={showClose}
+        loan={loan}
+        onClose={(done) => {
+          setShowClose(false);
+          if (done) toast("Loan closed early.");
+        }}
+      />
+      <ConfirmModal
+        open={confirmReopen}
+        onClose={() => setConfirmReopen(false)}
+        onConfirm={() => {
+          for (const e of state.events) if (e.loanId === loan.id && e.closure) deleteEvent(e.id);
+          updateLoan(loan.id, { closedOn: null, closure: null });
+          setConfirmReopen(false);
+          toast("Early close undone. The loan is open again.");
+        }}
+        title="Undo early close?"
+        confirmLabel="Undo early close"
+        danger
+      >
+        <p className="muted">
+          This removes the payoff payments booked when the loan was closed early on {formatDate(view.closure?.date)} and opens the loan again
+          with its original schedule.
+        </p>
+      </ConfirmModal>
 
       <EventFormModal
         open={!!showRepay}

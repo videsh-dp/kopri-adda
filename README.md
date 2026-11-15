@@ -44,6 +44,7 @@ Once opened, the app keeps working offline because all data is already on the de
 | `npm run test:ui` | End-to-end UI test in headless Chrome (needs `CHROME_PATH` if Chrome isn't in the default location, and the dev server running) |
 | `npm run test:mobile` | Phone layout check in headless Chrome: every screen fits 360px, tab bar and More sheet work, PWA manifest is wired (dev server running) |
 | `npm run test:accounts` | Accounts tree in headless Chrome: totals match the dashboard, expand/collapse, details and drill-down, phone fit (dev server running) |
+| `npm run test:loan-terms` | Loan page on phone and desktop: late fee per EMI (waive / set), editable late fee when paying, payment history, early close and undo (dev server running) |
 
 ## Running multiple Kopris
 
@@ -66,6 +67,9 @@ Once opened, the app keeps working offline because all data is already on the de
 - **Members & borrowers** — profiles with role (depositor, borrower, or both), address, ID proof, occupation, nominee; borrowers don't have to be members; full statement (every event + running derived balance)
 - **Monthly deposits** — configurable due day and deadline (e.g. due 1st, late after 15th), per-member monthly amount, optional late fee (fixed or %), a month-by-month grid that highlights unpaid months, and pay buttons per month
 - **Loans** — every new loan must be referred by an active depositing member (rule can be switched off); create loans with full terms, a configurable late fee per loan, late fees shown as they build up, repayment schedule table, per-installment status (paid/due/overdue with grace periods), record repayments, guarantors & security
+- **Per-EMI late fees** — on any single EMI, follow the loan's late rule, set a fee by hand (stays owed until collected) or waive it; the late fee can also be changed when recording a payment
+- **Payment history** — every principal, interest, late-fee and payoff entry on a loan, listed on the loan page with edit/delete
+- **Early close** — pay off a loan before its tenure ends: principal still out + interest due + interest for the current period up to the closing date + late fees; the manager can change the interest and late-fee amounts, interest on the remaining EMIs is not charged, and the close can be undone
 - **Ledger** — every financial event, filterable and searchable, with running pool balance
 - **Cash & Bank** — cash vs bank balances, transfers between them
 - **Year-End** — profit waterfall (income → expenses → reserve → manager charges → distributable), profit allocation per member, save allocation (creates ledger events), settle payouts (members' capital + profit, and the manager's share)
