@@ -5,7 +5,7 @@ import { useKopri } from "../state/KopriContext.jsx";
 import { derivePortfolio, monthlyCashFlow, sortLedger, cashDelta, depositSummary } from "../lib/calculations.js";
 import { formatINR, formatNumber, formatDate, monthLabel } from "../lib/format.js";
 import { Card, StatCard, Badge, EmptyState, Avatar } from "../components/ui.jsx";
-import { IconMoney, IconWarning, IconUsers, IconLoan, IconLedger, IconArrow, IconCalendar } from "../components/Icons.jsx";
+import { IconMoney, IconWarning, IconUsers, IconLoan, IconLedger, IconArrow, IconCalendar, IconTree } from "../components/Icons.jsx";
 
 function ChartTip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -126,6 +126,15 @@ export default function Dashboard() {
           color="var(--teal)"
         />
       </div>
+
+      <Link to="/accounts" className="acct-dash-link">
+        <IconTree width={18} height={18} />
+        <span>
+          <b>All accounts as a tree</b>
+          <span className="small faint"> · assets, member balances, income and expenses with sub-accounts</span>
+        </span>
+        <IconArrow width={16} height={16} style={{ marginLeft: "auto", flexShrink: 0 }} />
+      </Link>
 
       {(overdueLoans.length > 0 || defaulted.length > 0) && (
         <div className={`alert ${defaulted.length > 0 ? "alert-red" : "alert-amber"}`}>

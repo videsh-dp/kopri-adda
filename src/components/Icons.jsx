@@ -221,3 +221,12 @@ export const IconInstall = (p) => (
     <path d="M10.5 18.5h3" />
   </svg>
 );
+
+export const IconTree = (p) => (
+  <svg {...base} {...p}>
+    <rect x="9" y="2.5" width="6" height="5" rx="1.2" />
+    <rect x="2.5" y="16.5" width="6" height="5" rx="1.2" />
+    <rect x="15.5" y="16.5" width="6" height="5" rx="1.2" />
+    <path d="M12 7.5v4.5M5.5 16.5V12h13v4.5" />
+  </svg>
+);

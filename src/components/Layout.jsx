@@ -21,10 +21,17 @@ import {
   IconArrowUp,
   IconInstall,
   IconClose,
+  IconTree,
 } from "./Icons.jsx";
 
 const NAV = [
-  { section: "Overview", items: [{ to: "/", label: "Dashboard", icon: IconDashboard, end: true }] },
+  {
+    section: "Overview",
+    items: [
+      { to: "/", label: "Dashboard", icon: IconDashboard, end: true },
+      { to: "/accounts", label: "Accounts", icon: IconTree },
+    ],
+  },
   {
     section: "People & Loans",
     items: [

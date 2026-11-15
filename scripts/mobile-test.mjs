@@ -43,7 +43,7 @@ try {
   await go("/members");
   const memberHref = await page.$eval('a[href^="/members/"]', (a) => a.getAttribute("href"));
 
-  for (const path of ["/", "/members", "/deposits", "/loans", "/ledger", "/cash-bank", "/year-end", "/reports", "/rules", loanHref, memberHref]) {
+  for (const path of ["/", "/accounts", "/members", "/deposits", "/loans", "/ledger", "/cash-bank", "/year-end", "/reports", "/rules", loanHref, memberHref]) {
     await go(path);
     const [sw, cw] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
     ok(`${path} fits a 360px screen`, sw <= cw, `page is ${sw}px wide`);
