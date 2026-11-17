@@ -228,6 +228,12 @@ try {
   let disabled = await page.evaluate(() => [...document.querySelectorAll(".modal-foot button.btn-primary")].pop().disabled);
   ok("loan blocked until a member refers it", disabled);
   await setSelectByText("Recommended by", "Asha Mgr");
+  // New loan is a 3-step guide: Who → How much → Check.
+  await sleep(100);
+  await clickButton("Next");
+  await sleep(100);
+  await clickButton("Next");
+  await sleep(100);
   await sleep(100);
   await clickButton("Give loan");
   await sleep(400);

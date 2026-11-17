@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
-import { computeYearEnd, financialYearBounds, financialYearOf, deriveAccounts } from "../lib/calculations.js";
+import { computeYearEnd, financialYearBounds, financialYearOf, deriveAccounts, derivePortfolio } from "../lib/calculations.js";
 import { formatINR, formatDate, todayISO } from "../lib/format.js";
 import { Card, StatCard, Button, Badge, Avatar, EmptyState, Modal, NumberInput, toast } from "../components/ui.jsx";
+import { GuideSteps } from "../components/Guide.jsx";
+import { collectionList } from "../lib/collect.js";
 import { PROFIT_DISTRIBUTION, UNPAID_INTEREST_RULES, UNPAID_INTEREST_LABELS } from "../lib/constants.js";
 
 // What each treatment does to the borrower's balance, in plain words.
@@ -62,6 +64,49 @@ export default function YearEnd() {
   const unpaidTotal = Math.round(unpaid.reduce((s, u) => s + u.amount, 0) * 100) / 100;
   const treatedCount = unpaid.filter((u) => u.action !== UNPAID_INTEREST_RULES.CARRY_FORWARD).length;
 
+  // Year-end guide: what is left to do, in order.
+  const unpaidByYearEnd = useMemo(() => {
+    const list = collectionList(state, todayISO()).toCollect.filter((i) => i.dueDate <= fyEnd);
+    return { count: list.length, total: list.reduce((a, i) => a + i.amount, 0) };
+  }, [state, fyEnd]);
+  const stuckLoans = useMemo(
+    () => derivePortfolio(state).loanViews.filter((l) => !l.isWrittenOff && l.outstandingPrincipal > 0.5 && (l.effectiveStatus === "defaulted" || l.overdueDaysMax > 90)),
+    [state]
+  );
+  const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const guideSteps = [
+    {
+      title: "Collect what you can",
+      text: unpaidByYearEnd.count
+        ? `${unpaidByYearEnd.count} payment${unpaidByYearEnd.count === 1 ? "" : "s"} due by ${formatDate(fyEnd)} still unpaid (${formatINR(unpaidByYearEnd.total)}).`
+        : "Everything due this year has been collected.",
+      done: unpaidByYearEnd.count === 0 || !!existing,
+      action: { label: "Open Collect", to: "/" },
+    },
+    {
+      title: "Decide about loans that won't be paid",
+      text: stuckLoans.length
+        ? `${stuckLoans.length} loan${stuckLoans.length === 1 ? " is" : "s are"} more than 3 months late or marked not paying. Open the loan and tap "Can't recover" if the money is lost. This lowers the profit shared.`
+        : "No loans are badly late.",
+      done: stuckLoans.length === 0 || !!existing,
+      action: stuckLoans.length ? { label: `Open ${stuckLoans.length === 1 ? "the loan" : "first loan"}`, to: `/loans/${stuckLoans[0].id}` } : null,
+    },
+    {
+      title: "Check the profit and save the split",
+      text: existing
+        ? `Saved. ${formatINR(result.distributable)} shared among ${result.allocations.length} members.`
+        : `${formatINR(result.distributable)} to share among ${result.allocations.length} members after the reserve and manager's share. Check the list, then tap "Save allocation".`,
+      done: !!existing,
+      action: { label: "Show the split", onClick: () => scrollTo("ye-allocate") },
+    },
+    {
+      title: "Pay the members",
+      text: existing?.settled ? `Paid on ${formatDate(existing.settledDate)}.` : "Tap \"Settle & payout\" to record each member's money back plus profit.",
+      done: !!existing?.settled,
+      action: existing ? { label: "Go to payout", onClick: () => scrollTo("ye-allocate") } : null,
+    },
+  ];
+
   const distributionLabel = {
     [PROFIT_DISTRIBUTION.EQUAL]: "Equal shares",
     [PROFIT_DISTRIBUTION.CURRENT_CONTRIBUTION]: "Share of current capital",
@@ -113,6 +158,8 @@ export default function YearEnd() {
         </div>
       </div>
 
+      <GuideSteps title={`Year-end guide · FY ${fyLabel}`} sub="Do these in order. Green ticks show what is done." steps={guideSteps} />
+
       <div className="stat-grid">
         <StatCard label="Gross profit" value={formatINR(result.grossProfit)} foot={`FY ${fyLabel}`} color="var(--green)" />
         <StatCard label="Reserve held" value={formatINR(result.reserve)} foot={`${state.rules.reserveRate || 0}% of gross`} color="var(--amber)" />
@@ -161,7 +208,8 @@ export default function YearEnd() {
           </div>
         </Card>
 
-        <Card title="Profit Allocation" sub="How the distributable profit is split" pad className="grow" style={{ flex: 1.4 }}>
+        <div id="ye-allocate" className="grow" style={{ flex: 1.4, scrollMarginTop: 80 }}>
+        <Card title="Profit Allocation" sub="How the distributable profit is split" pad>
           {result.allocations.length === 0 ? (
             <EmptyState icon="🎯" title="No eligible members" sub="Members need positive capital to receive a share." />
           ) : (
@@ -238,6 +286,7 @@ export default function YearEnd() {
             </div>
           </div>
         </Card>
+        </div>
       </div>
 
       <Card title="Settlement Summary" sub="What each member receives at year end — capital back plus their profit share" pad>

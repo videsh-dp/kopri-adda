@@ -431,6 +431,15 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
         }
   );
   const [showNewBorrower, setShowNewBorrower] = useState(false);
+  // New loans go step by step: who → how much → check. Editing shows everything.
+  const wizard = !editLoan;
+  const [step, setStep] = useState(0);
+  const wasOpenLoan = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpenLoan.current) setStep(0);
+    wasOpenLoan.current = open;
+  }, [open]);
+  const vis = (n) => (!wizard || step === n ? undefined : { display: "none" });
   const people = state.members.filter((m) => m.status === "active" || m.id === form.memberId);
   const referrers = eligibleReferrers(state.members, form.memberId);
   // Editing a loan made before the rule existed shouldn't force a referral.
@@ -456,6 +465,7 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
   const customOk = !isCustom || (customRows.length === tenure && Math.abs(customTotal - (Number(form.principal) || 0)) < 1);
 
   const valid = form.memberId && Number(form.principal) > 0 && Number(form.tenureMonths) > 0 && customOk && !referralError;
+  const stepOk = [!!form.memberId && !referralError, Number(form.principal) > 0 && Number(form.tenureMonths) > 0, valid];
 
   // One plain sentence: what the borrower pays each month and in total.
   const summary = useMemo(() => {
@@ -475,9 +485,10 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
       const first = round2(totals[0]);
       const same = totals.every((t) => Math.abs(t - totals[0]) < 1);
       const name = state.members.find((m) => m.id === form.memberId)?.name.split(" ")[0] || "The borrower";
-      return same
+      return (same
         ? `${name} pays ${formatINR(first)} every month for ${sched.length} months. Total ${formatINR(p + interest)} (${formatINR(interest)} interest).`
-        : `${name} pays ${formatINR(first)} first, ${sched.length} payments in all. Total ${formatINR(p + interest)} (${formatINR(interest)} interest).`;
+        : `${name} pays ${formatINR(first)} first, ${sched.length} payments in all. Total ${formatINR(p + interest)} (${formatINR(interest)} interest).`
+      ) + ` First payment due ${formatDate(sched[0].dueDate)}.`;
     } catch {
       return "";
     }
@@ -523,15 +534,33 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
       title={editLoan ? "Edit loan" : "New loan"}
       wide
       footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={submit} disabled={!valid}>
-            {editLoan ? "Save changes" : "Give loan"}
-          </Button>
-        </>
+        wizard && step < 2 ? (
+          <>
+            {step === 0 ? <Button onClick={onClose}>Cancel</Button> : <Button onClick={() => setStep(step - 1)}>Back</Button>}
+            <Button variant="primary" onClick={() => setStep(step + 1)} disabled={!stepOk[step]}>
+              Next
+            </Button>
+          </>
+        ) : (
+          <>
+            {wizard ? <Button onClick={() => setStep(1)}>Back</Button> : <Button onClick={onClose}>Cancel</Button>}
+            <Button variant="primary" onClick={submit} disabled={!valid}>
+              {editLoan ? "Save changes" : "Give loan"}
+            </Button>
+          </>
+        )
       }
     >
-      <div className="form-grid">
+      {wizard && (
+        <div className="wizard-steps" aria-label={`Step ${step + 1} of 3`}>
+          {["Who", "How much", "Check"].map((l, i) => (
+            <span key={l} className={i === step ? "on" : i < step ? "done" : ""}>
+              {i + 1}. {l}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="form-grid" style={vis(0)}>
         <Field label="Who takes the loan?" className="grow">
           <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
             <select value={form.memberId} onChange={set("memberId")} style={{ flex: 1, minWidth: 0 }}>
@@ -564,6 +593,8 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
             ))}
           </select>
         </Field>
+      </div>
+      <div className="form-grid" style={vis(1)}>
         <Field label="Loan amount (₹)">
           <NumberInput value={form.principal} onChange={set("principal")} min="0" />
         </Field>
@@ -589,6 +620,8 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
         <Field label="Loan given on">
           <input type="date" value={form.startDate} onChange={set("startDate")} />
         </Field>
+      </div>
+      <div className="form-grid" style={vis(2)}>
         {summary && (
           <div className="loan-summary" style={{ gridColumn: "1 / -1" }}>
             {summary}

@@ -118,6 +118,52 @@ try {
   const sheet = await page.evaluate(() => document.querySelector(".sheet")?.innerText || "");
   ok("More lists Manager tools with Overview", /manager tools/i.test(sheet) && sheet.includes("Overview"));
 
+  // First-run setup guide on a brand-new kopri
+  await page.keyboard.press("Escape");
+  await page.click(".kopri-switch-btn");
+  await sleep(200);
+  await page.evaluate(() => [...document.querySelectorAll(".kopri-switch-menu button")].find((b) => b.innerText.includes("New Kopri")).click());
+  await sleep(300);
+  await page.type(".modal input", "Guide Kopri");
+  await page.evaluate(() => [...document.querySelectorAll(".modal-foot button")].pop().click());
+  await sleep(500);
+  const guideTitle = await page.evaluate(() => [...document.querySelectorAll(".modal-title")].pop()?.innerText);
+  ok("a new kopri opens the setup guide", guideTitle === "Set up your kopri", guideTitle);
+  const setIn = (label, value) =>
+    page.evaluate(
+      (label, value) => {
+        const g = [...document.querySelectorAll(".modal .form-group")].find((x) => x.querySelector("label")?.textContent.trim().startsWith(label));
+        const el = g.querySelector("input");
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, value);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      },
+      label,
+      value
+    );
+  const footClick = (t) => page.evaluate((t) => [...document.querySelectorAll(".modal-foot button")].find((b) => b.innerText.trim() === t).click(), t);
+  await setIn("Monthly deposit per member", "750");
+  await setIn("Late after day", "10");
+  await footClick("Next");
+  await sleep(150);
+  await setIn("Usual loan interest", "1.5");
+  await footClick("Next");
+  await sleep(150);
+  for (const [n, ph] of [["Rita Guide", "9822011111"], ["Sam Guide", ""]]) {
+    await setIn("Name", n);
+    await setIn("Mobile number", ph);
+    await sleep(50);
+    await page.evaluate(() => [...document.querySelectorAll(".modal-body button")].find((b) => b.innerText.startsWith("+ Add")).click());
+    await sleep(150);
+  }
+  await footClick("Done");
+  await sleep(300);
+  b = await book();
+  ok("setup saved the deposit rules", b.rules.defaultMonthlyDeposit === 750 && b.rules.depositDeadlineDay === 10 && b.rules.defaultInterestRate === 1.5 && b.rules.setupDone === true, JSON.stringify(b.rules));
+  ok("setup added the members on that deposit", b.members.length === 2 && b.members.every((m) => m.monthlyDeposit === 750) && b.members[0].phone === "9822011111");
+  ok("Collect now lists their deposits", (await rowKeys()).length === 2);
+  await page.reload({ waitUntil: "networkidle0" });
+  ok("guide does not open again", !(await page.$(".modal")));
+
   ok("no page errors", errors.length === 0, errors.join(" | "));
 } catch (e) {
   console.error(e);

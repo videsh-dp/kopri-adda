@@ -71,7 +71,11 @@ try {
     await page.evaluate((t) => [...document.querySelectorAll(".content button")].find((b) => b.innerText.trim() === t).click(), buttonText);
     await sleep(400);
     // Open "More details" so the date fields inside it are measured too.
-    await page.evaluate(() => document.querySelectorAll(".modal details").forEach((d) => (d.open = true)));
+    // Also show every step of a step-by-step form (New loan).
+    await page.evaluate(() => {
+      document.querySelectorAll(".modal details").forEach((d) => (d.open = true));
+      document.querySelectorAll('.modal .form-grid[style*="display: none"]').forEach((g) => (g.style.display = ""));
+    });
     await sleep(150);
     const r = await page.evaluate(() => {
       const m = document.querySelector(".modal");
@@ -140,6 +144,9 @@ try {
   await page.type(".modal input", "Second Kopri");
   await page.evaluate(() => [...document.querySelectorAll(".modal-foot button")].pop().click());
   await sleep(300);
+  // A new kopri opens the setup guide on Collect: skip it here.
+  await page.evaluate(() => [...document.querySelectorAll(".modal-foot button")].find((b) => b.innerText.includes("Skip for now"))?.click());
+  await sleep(200);
   await page.click(".kopri-switch-btn");
   await sleep(200);
   await page.evaluate(() => [...document.querySelectorAll(".kopri-switch-menu button")].find((b) => b.innerText.includes("Manage")).click());

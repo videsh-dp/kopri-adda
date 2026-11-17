@@ -2039,3 +2039,40 @@ button.acct-toggle:hover { background: var(--bg-soft); color: var(--text); }
   .collect-row-top { flex: 1; }
   .collect-row-actions .btn-paid { flex: none; min-width: 190px; }
 }
+/* --------------------------------------------------------------- Guides */
+.guide { padding: 16px 18px; }
+.guide-head { margin-bottom: 10px; }
+.guide-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.guide-step { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.guide-step:first-child { border-top: 0; }
+.guide-num {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 750;
+  font-size: 14px;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+}
+.guide-step.now .guide-num { background: var(--primary); color: #fff; }
+.guide-step.done .guide-num { background: var(--green-soft); color: var(--green); }
+.guide-step.done .guide-title { color: var(--text-soft); }
+.guide-body { min-width: 0; flex: 1; }
+.guide-title { font-weight: 700; font-size: 15px; }
+.guide-text { font-size: 13.5px; color: var(--text-soft); margin-top: 2px; }
+.wizard-steps { display: flex; gap: 6px; margin-bottom: 14px; }
+.wizard-steps span {
+  flex: 1;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 7px 4px;
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text-faint);
+}
+.wizard-steps span.on { background: var(--primary); color: #fff; }
+.wizard-steps span.done { background: var(--primary-soft); color: var(--primary-text); }

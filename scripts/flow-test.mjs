@@ -146,6 +146,12 @@ try {
   });
   ok("referrers are depositors other than the borrower", refOptions.includes("Asha Flow") && !refOptions.includes("Bosco Flow") && !refOptions.includes("Carlos Outsider"), refOptions.join());
   await setSelectByText("Recommended by", "Asha Flow");
+  // New loan is a 3-step guide: Who → How much → Check.
+  await sleep(100);
+  await clickButton("Next");
+  await sleep(100);
+  await clickButton("Next");
+  await sleep(100);
   await setField("Loan amount (₹)", "12000");
   await setField("Interest (%)", "2");
   await setField("Number of months", "3");

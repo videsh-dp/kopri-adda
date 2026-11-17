@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { collectionList, paymentEvents, whatsappLink, receiptText, reminderText } from "../lib/collect.js";
 import { formatINR, formatDate, todayISO, round2 } from "../lib/format.js";
 import { Avatar, Button, Modal, toast } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
+import SetupGuide from "../components/SetupGuide.jsx";
 import { IconCheck, IconChat, IconMore, IconSearch, IconPlus } from "../components/Icons.jsx";
 import { EVENT_TYPES } from "../lib/constants.js";
 
@@ -47,6 +48,13 @@ export default function Collect() {
   const [menuFor, setMenuFor] = useState(null); // row whose "more" menu is open
   const [preset, setPreset] = useState(null); // EventFormModal preset for "other amount"
   const [showOther, setShowOther] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
+
+  // A brand-new kopri opens the setup guide once.
+  const isNew = state.members.length === 0 && state.events.length === 0 && !state.rules.setupDone;
+  useEffect(() => {
+    if (isNew) setShowSetup(true);
+  }, [isNew, state.id]);
 
   const setAccount = (a) => {
     setAccountState(a);
@@ -188,7 +196,10 @@ export default function Collect() {
 
       {!hasPeople ? (
         <div className="collect-done" style={{ background: "var(--primary-soft)", color: "var(--primary-text)" }}>
-          No members yet. <Link to="/members" style={{ textDecoration: "underline" }}>Add your first member</Link> to start collecting.
+          <div style={{ marginBottom: 10 }}>No members yet. Set up your kopri in 3 short steps.</div>
+          <Button variant="primary" onClick={() => setShowSetup(true)}>
+            Start setup
+          </Button>
         </div>
       ) : rows.length === 0 ? (
         <div className="collect-done">
@@ -297,6 +308,7 @@ export default function Collect() {
       </Modal>
 
       <EventFormModal open={!!preset} onClose={() => setPreset(null)} preset={preset || {}} />
+      <SetupGuide open={showSetup} onClose={() => setShowSetup(false)} />
       <EventFormModal open={showOther} onClose={() => setShowOther(false)} preset={{ account }} />
     </div>
   );
