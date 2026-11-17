@@ -10,13 +10,13 @@ import { IconPlus, IconSearch } from "../components/Icons.jsx";
 const FILTERS = [
   ["all", "All"],
   ["active", "Active"],
-  ["overdue", "Overdue"],
-  ["completed", "Completed"],
-  ["defaulted", "Defaulted"],
+  ["overdue", "Late"],
+  ["completed", "Closed"],
+  ["defaulted", "Not paying"],
 ];
 
 export default function Loans() {
-  const { state } = useKopri();
+  const { state, t } = useKopri();
   const navigate = useNavigate();
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
@@ -49,15 +49,15 @@ export default function Loans() {
     <div>
       <div className="page-head">
         <div>
-          <div className="page-title">Loans</div>
+          <div className="page-title">{t("Loans")}</div>
           <div className="page-sub">
-            {formatINR(totals.disbursed)} disbursed · {formatINR(totals.outstanding)} outstanding ·{" "}
-            {totals.overdue > 0 && <span className="amount-neg">{formatINR(totals.overdue)} overdue</span>}
+            {formatINR(totals.disbursed)} given · {formatINR(totals.outstanding)} still to pay ·{" "}
+            {totals.overdue > 0 && <span className="amount-neg">{formatINR(totals.overdue)} late</span>}
             {totals.lateFees > 0 && <span className="amount-neg"> + {formatINR(totals.lateFees)} late fees</span>}
           </div>
         </div>
         <Button variant="primary" onClick={() => setShowAdd(true)}>
-          <IconPlus /> Create loan
+          <IconPlus /> {t("New loan")}
         </Button>
       </div>
 
@@ -93,12 +93,12 @@ export default function Loans() {
                 <tr>
                   <th>Loan</th>
                   <th>Borrower</th>
-                  <th>Principal</th>
-                  <th>Rate & method</th>
+                  <th>Loan amount</th>
+                  <th>Interest</th>
                   <th>Started</th>
                   <th>Status</th>
-                  <th className="num">Outstanding</th>
-                  <th className="num">Repaid</th>
+                  <th className="num">Still to pay</th>
+                  <th className="num">Paid back</th>
                   <th />
                 </tr>
               </thead>

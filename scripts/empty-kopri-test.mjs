@@ -32,12 +32,13 @@ await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => b
 await sleep(700);
 
 const expectations = [
-  ["/", "Total Pool Assets"],
-  ["/members", "Members & Borrowers"],
-  ["/deposits", "Monthly Deposits"],
-  ["/loans", "Create loan"],
-  ["/ledger", "Unified Ledger"],
-  ["/cash-bank", "Cash & Bank"],
+  ["/", "To collect"],
+  ["/overview", "Total kopri money"],
+  ["/members", "People"],
+  ["/deposits", "Deposit chart"],
+  ["/loans", "New loan"],
+  ["/ledger", "All entries"],
+  ["/cash-bank", "Cash & bank"],
   ["/year-end", "Profit Waterfall"],
   ["/reports", "Reports"],
   ["/rules", "Kopri Rules"],

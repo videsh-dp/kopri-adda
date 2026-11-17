@@ -1,6 +1,8 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
 import { useKopri } from "../state/KopriContext.jsx";
+import { LANGUAGES } from "../lib/i18n.js";
+import { Modal, Field, Button } from "./ui.jsx";
 import { formatDate, todayISO } from "../lib/format.js";
 import { useInstallApp } from "../lib/pwa.js";
 import KopriSwitcher from "./KopriSwitcher.jsx";
@@ -22,47 +24,39 @@ import {
   IconInstall,
   IconClose,
   IconTree,
+  IconCash,
 } from "./Icons.jsx";
 
+// Daily work first; the accounting pages live under "Manager tools".
 const NAV = [
   {
-    section: "Overview",
+    section: "Daily",
     items: [
-      { to: "/", label: "Dashboard", icon: IconDashboard, end: true },
-      { to: "/accounts", label: "Accounts", icon: IconTree },
-    ],
-  },
-  {
-    section: "People & Loans",
-    items: [
-      { to: "/members", label: "Members", icon: IconUsers },
-      { to: "/deposits", label: "Deposits", icon: IconCalendar },
+      { to: "/", label: "Collect", title: "Collect payments", icon: IconCash, end: true },
+      { to: "/members", label: "People", icon: IconUsers },
       { to: "/loans", label: "Loans", icon: IconLoan },
+      { to: "/deposits", label: "Deposit chart", icon: IconCalendar },
     ],
   },
   {
-    section: "Money",
+    section: "Manager tools",
     items: [
-      { to: "/ledger", label: "Ledger", icon: IconLedger },
-      { to: "/cash-bank", label: "Cash & Bank", icon: IconBank },
-      { to: "/year-end", label: "Year End", icon: IconYearEnd },
-    ],
-  },
-  {
-    section: "Setup",
-    items: [
+      { to: "/overview", label: "Overview", icon: IconDashboard },
+      { to: "/ledger", label: "All entries", icon: IconLedger },
+      { to: "/cash-bank", label: "Cash & bank", icon: IconBank },
+      { to: "/accounts", label: "Accounts", icon: IconTree },
+      { to: "/year-end", label: "Year end", icon: IconYearEnd },
       { to: "/reports", label: "Reports", icon: IconReport },
-      { to: "/rules", label: "Kopri Rules", icon: IconRules },
+      { to: "/rules", label: "Settings", title: "Kopri settings", icon: IconRules },
     ],
   },
 ];
 
 const ALL = NAV.flatMap((s) => s.items);
-// Phone bottom tab bar: the four daily screens, everything else under "More".
+// Phone bottom tab bar: the three daily screens, everything else under "More".
 const TABS = [
-  { to: "/", label: "Home", icon: IconDashboard, end: true },
-  { to: "/members", label: "Members", icon: IconUsers },
-  { to: "/deposits", label: "Deposits", icon: IconCalendar },
+  { to: "/", label: "Collect", icon: IconCash, end: true },
+  { to: "/members", label: "People", icon: IconUsers },
   { to: "/loans", label: "Loans", icon: IconLoan },
 ];
 const MORE = ALL.filter((i) => !TABS.some((t) => t.to === i.to));
@@ -98,8 +92,46 @@ function InstallHint({ mode, install, onDone }) {
   return null;
 }
 
-function MoreSheet({ open, onClose }) {
-  const { state, setTheme } = useKopri();
+// App language and WhatsApp message language (members may prefer another).
+export function LanguageModal({ open, onClose }) {
+  const { lang, msgLang, setSettings, t } = useKopri();
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t("Language")}
+      footer={
+        <Button variant="primary" onClick={onClose}>
+          {t("Done")}
+        </Button>
+      }
+    >
+      <div className="stack" style={{ gap: 16 }}>
+        <Field label={t("App language")} hint={t("Some manager pages stay in English for now.")}>
+          <div className="lang-list" role="group" aria-label={t("App language")}>
+            {LANGUAGES.map((l) => (
+              <button key={l.code} type="button" className={lang === l.code ? "on" : ""} aria-pressed={lang === l.code} onClick={() => setSettings({ lang: l.code })}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label={t("WhatsApp message language")} hint={t("Members get receipts and reminders in this language.")}>
+          <div className="lang-list" role="group" aria-label={t("WhatsApp message language")}>
+            {LANGUAGES.map((l) => (
+              <button key={l.code} type="button" className={msgLang === l.code ? "on" : ""} aria-pressed={msgLang === l.code} onClick={() => setSettings({ msgLang: l.code })}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+      </div>
+    </Modal>
+  );
+}
+
+function MoreSheet({ open, onClose, onLanguage }) {
+  const { state, setTheme, t, lang } = useKopri();
   const location = useLocation();
   const { mode, install } = useInstallApp();
   const dark = state.settings?.theme === "dark";
@@ -123,13 +155,19 @@ function MoreSheet({ open, onClose }) {
       <div className="sheet" role="dialog" aria-modal="true" aria-label="More">
         <div className="sheet-handle" />
         <div className="sheet-head">
-          <div className="sheet-title">More</div>
+          <div className="sheet-title">{t("More")}</div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             <IconClose />
           </button>
         </div>
-        <div className="sheet-list">
-          {MORE.map((item) => (
+        {NAV.map((section) => {
+          const items = section.items.filter((i) => MORE.includes(i));
+          if (!items.length) return null;
+          return (
+            <div key={section.section}>
+              <div className="sheet-section">{t(section.section)}</div>
+              <div className="sheet-list">
+                {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -139,14 +177,24 @@ function MoreSheet({ open, onClose }) {
               <span className="sheet-row-icon">
                 <item.icon width={20} height={20} />
               </span>
-              {item.label}
-            </NavLink>
-          ))}
-        </div>
+                    {t(item.label)}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          );
+        })}
         <div className="sheet-list">
           <button className="sheet-row" onClick={() => setTheme(dark ? "light" : "dark")}>
             <span className="sheet-row-icon">{dark ? <IconSun width={20} height={20} /> : <IconMoon width={20} height={20} />}</span>
-            {dark ? "Light mode" : "Dark mode"}
+            {dark ? t("Light mode") : t("Dark mode")}
+          </button>
+          <button className="sheet-row" onClick={onLanguage}>
+            <span className="sheet-row-icon" style={{ fontWeight: 800 }}>अ</span>
+            <span className="grow">
+              {t("Language")}
+              <span className="sheet-row-hint">{LANGUAGES.find((l) => l.code === lang)?.label}</span>
+            </span>
           </button>
           {(mode === "prompt" || mode === "ios") && (
             <div className="sheet-row static">
@@ -170,6 +218,7 @@ function MoreSheet({ open, onClose }) {
 }
 
 function InstallBanner() {
+  const { t } = useKopri();
   const { mode, install } = useInstallApp();
   const KEY = "kopri.installBannerDismissed";
   const [dismissed, setDismissed] = useState(() => {
@@ -194,14 +243,14 @@ function InstallBanner() {
         <IconInstall width={20} height={20} />
       </div>
       <div className="grow">
-        <div style={{ fontWeight: 700 }}>Use Kopri like an app</div>
+        <div style={{ fontWeight: 700 }}>{t("Use Kopri like an app")}</div>
         <div className="small">
-          {mode === "ios" ? "Tap Share, then “Add to Home Screen”." : "Add it to your home screen. It works offline too."}
+          {mode === "ios" ? "Tap Share, then “Add to Home Screen”." : t("Add it to your home screen. It works offline too.")}
         </div>
       </div>
       {mode === "prompt" && (
         <button className="btn btn-primary btn-sm" onClick={async () => (await install()) && dismiss()}>
-          Install
+          {t("Install")}
         </button>
       )}
       <button className="icon-btn" onClick={dismiss} aria-label="Dismiss">
@@ -212,7 +261,8 @@ function InstallBanner() {
 }
 
 export default function Layout() {
-  const { state } = useKopri();
+  const { state, t } = useKopri();
+  const [langOpen, setLangOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const rules = state.rules || {};
@@ -259,11 +309,11 @@ export default function Layout() {
 
         {NAV.map((section) => (
           <div key={section.section}>
-            <div className="nav-section-label">{section.section}</div>
+            <div className="nav-section-label">{t(section.section)}</div>
             {section.items.map((item) => (
               <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
                 <item.icon />
-                {item.label}
+                {t(item.label)}
               </NavLink>
             ))}
           </div>
@@ -275,6 +325,9 @@ export default function Layout() {
               <IconInstall /> Install app
             </button>
           )}
+          <button className="btn btn-sm" style={{ marginBottom: 10, width: "100%" }} onClick={() => setLangOpen(true)}>
+            अ {t("Language")}
+          </button>
           <div>FY starts {formatDate(`${todayISO().slice(0, 4)}-${rules.financialYearStart || "04-01"}`).slice(0, -5)}</div>
           <div style={{ marginTop: 2 }}>Stored locally in this browser</div>
         </div>
@@ -287,7 +340,7 @@ export default function Layout() {
               <IconBack width={20} height={20} />
             </button>
           )}
-          <h1>{activePage?.label || "Kopri Manager"}</h1>
+          <h1>{activePage ? t(activePage.title || activePage.label) : "Kopri Manager"}</h1>
           <span className="topbar-meta">{formatDate(todayISO())}</span>
           <div className="topbar-spacer" />
           <KopriSwitcher />
@@ -315,18 +368,26 @@ export default function Layout() {
             <span className="tab-pill">
               <item.icon width={22} height={22} />
             </span>
-            <span className="tab-label">{item.label}</span>
+            <span className="tab-label">{t(item.label)}</span>
           </NavLink>
         ))}
         <button className={`tab-item ${moreActive || moreOpen ? "active" : ""}`} onClick={() => setMoreOpen((o) => !o)} aria-expanded={moreOpen}>
           <span className="tab-pill">
             <IconMore width={22} height={22} />
           </span>
-          <span className="tab-label">More</span>
+          <span className="tab-label">{t("More")}</span>
         </button>
       </nav>
 
-      <MoreSheet open={moreOpen} onClose={closeMore} />
+      <MoreSheet
+        open={moreOpen}
+        onClose={closeMore}
+        onLanguage={() => {
+          setMoreOpen(false);
+          setLangOpen(true);
+        }}
+      />
+      <LanguageModal open={langOpen} onClose={() => setLangOpen(false)} />
     </div>
   );
 }

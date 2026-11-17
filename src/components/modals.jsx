@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useKopri } from "../state/KopriContext.jsx";
-import { Modal, Button, Field, TextInput, NumberInput } from "./ui.jsx";
+import { Modal, Button, Field, TextInput, NumberInput, Choice } from "./ui.jsx";
 import {
   INTEREST_METHODS,
   INTEREST_COLLECTION,
@@ -11,9 +11,9 @@ import {
   ACCOUNTS,
   EVENT_TYPES,
   MEMBER_ROLES,
-  MEMBER_ROLE_LABELS,
 } from "../lib/constants.js";
 import {
+  buildSchedule,
   deriveLoan,
   computeLateCharges,
   splitPayAmount,
@@ -62,8 +62,25 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
 
   return (
     <div className="calc-box">
-      <div className="calc-head">Why this interest</div>
       <div className="calc-sub">
+        EMI {installment.index + 1} · due {formatDate(installment.dueDate)}
+        {late?.isLate ? <span style={{ color: "var(--red)", fontWeight: 700 }}> · {late.daysLate} days late</span> : null}
+      </div>
+      <CalcRow label="Loan part still due" value={rupee(instLeft.principal)} />
+      <CalcRow label="Interest still due" value={rupee(instLeft.interest)} />
+      {lateTotal > 0.005 && <CalcRow label="Late charges" value={rupee(lateTotal)} tone="var(--amber)" />}
+      <CalcRow label="Total if they pay everything" value={rupee(grand)} strong />
+      {late?.isLate && lateTotal > 0 && (
+        <label className="row" style={{ gap: 8, marginTop: 10, cursor: "pointer", alignItems: "flex-start" }}>
+          <input type="checkbox" checked={withLate} onChange={(e) => setWithLate(e.target.checked)} style={{ marginTop: 3 }} />
+          <span className="small">
+            Also collect the late charges (<b>{rupee(lateTotal)}</b>)
+          </span>
+        </label>
+      )}
+      <details className="calc-details">
+        <summary>How this is worked out</summary>
+            <div className="calc-sub">
         Installment #{installment.index + 1} · due {formatDate(installment.dueDate)}
         {late?.asOf ? ` · paying ${formatDate(late.asOf)}` : ""}
       </div>
@@ -174,7 +191,7 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
       )}
 
       <div className="calc-section-label">How it adds up</div>
-      <CalcRow label="Principal still due" value={rupee(instLeft.principal)} />
+      <CalcRow label="Loan part still due" value={rupee(instLeft.principal)} />
       <CalcRow label="Scheduled interest still due" value={rupee(instLeft.interest)} />
       {extraInterest > 0.005 && <CalcRow label="Extra late interest" value={rupee(extraInterest)} tone="var(--amber)" />}
       {penalty > 0.005 && <CalcRow label="Late penalty" value={rupee(penalty)} tone="var(--amber)" />}
@@ -189,7 +206,7 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
         strong
       />
       <CalcRow
-        label="Installment amount (principal + scheduled interest)"
+        label="EMI (loan part + interest)"
         value={rupee(installmentTotal)}
         strong
       />
@@ -198,7 +215,7 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
       )}
       {lateTotal > 0.005 && (
         <CalcRow
-          label="Plus late charges (separate ledger entry)"
+          label="Plus late charges"
           value={rupee(lateTotal)}
           tone="var(--amber)"
         />
@@ -208,20 +225,13 @@ function InterestWorking({ loan, installment, instLeft, late, split, payMode, wi
       {payMode === "pi" && split && (
         <div className="small muted" style={{ marginTop: 8 }}>
           The amount field splits as <b>scheduled interest {rupee(split.interest)}</b> first, then{" "}
-          <b>principal {rupee(split.principal)}</b>
-          {split.extra > 0 ? <> (includes {rupee(split.extra)} extra, booked as a principal prepayment)</> : null}
+          <b>loan part {rupee(split.principal)}</b>
+          {split.extra > 0 ? <> (includes {rupee(split.extra)} extra, counted as paying the loan early)</> : null}
           {lateTotal > 0.005 ? ". Late charges are not mixed into that split." : null}
         </div>
       )}
 
-      {late?.isLate && lateTotal > 0 && (
-        <label className="row" style={{ gap: 8, marginTop: 10, cursor: "pointer", alignItems: "flex-start" }}>
-          <input type="checkbox" checked={withLate} onChange={(e) => setWithLate(e.target.checked)} style={{ marginTop: 3 }} />
-          <span className="small">
-            Also collect late charges (<b>{rupee(lateTotal)}</b>) as a separate late-fee entry
-          </span>
-        </label>
-      )}
+      </details>
     </div>
   );
 }
@@ -248,7 +258,7 @@ function blankMember(rules, role) {
 }
 
 export function MemberFormModal({ open, onClose, editMember = null, defaultRole = MEMBER_ROLES.DEPOSITOR, onCreated }) {
-  const { state, addMember, updateMember } = useKopri();
+  const { state, addMember, updateMember, t } = useKopri();
   const makeForm = () =>
     editMember
       ? {
@@ -293,7 +303,7 @@ export function MemberFormModal({ open, onClose, editMember = null, defaultRole 
     onClose();
   };
 
-  const title = editMember ? "Edit Profile" : form.role === MEMBER_ROLES.BORROWER ? "Add Borrower" : "Add Member";
+  const title = editMember ? "Edit details" : form.role === MEMBER_ROLES.BORROWER ? t("Add borrower") : t("Add member");
 
   return (
     <Modal
@@ -303,74 +313,94 @@ export function MemberFormModal({ open, onClose, editMember = null, defaultRole 
       wide
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t("Cancel")}</Button>
           <Button variant="primary" onClick={submit} disabled={!valid}>
-            {editMember ? "Save profile" : form.role === MEMBER_ROLES.BORROWER ? "Add borrower" : "Add member"}
+            {editMember ? t("Save") : form.role === MEMBER_ROLES.BORROWER ? t("Add borrower") : t("Add member")}
           </Button>
         </>
       }
     >
       <div className="form-grid">
-        <Field label="Full name" className="grow">
+        <Field label={t("Full name")} className="grow" style={{ gridColumn: "1 / -1" }}>
           <TextInput value={form.name} onChange={set("name")} placeholder="e.g. Anita Fernandes" autoFocus />
         </Field>
-        <Field label="Role" hint={deposits ? "Pays a monthly deposit and shares year-end profit" : "Takes loans only, must be referred by a member"}>
-          <select value={form.role} onChange={set("role")}>
-            {Object.entries(MEMBER_ROLE_LABELS).map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </select>
+        <Field
+          label={t("Type")}
+          className="grow"
+          style={{ gridColumn: "1 / -1" }}
+          hint={deposits ? t("Pays a monthly deposit and gets a share of the profit") : t("Only takes loans. A member must recommend them.")}
+        >
+          <Choice
+            label={t("Type")}
+            value={form.role}
+            onChange={(v) => setForm((f) => ({ ...f, role: v }))}
+            options={[
+              [MEMBER_ROLES.DEPOSITOR, t("Member")],
+              [MEMBER_ROLES.BOTH, t("Member + borrower")],
+              [MEMBER_ROLES.BORROWER, t("Borrower only")],
+            ]}
+          />
         </Field>
-        <Field label="Phone">
-          <TextInput value={form.phone} onChange={set("phone")} placeholder="98220 12345" />
+        <Field label={t("Mobile number")} hint={t("Used for WhatsApp reminders and receipts")}>
+          <input type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={set("phone")} placeholder="98220 12345" />
         </Field>
-        <Field label="Email">
-          <TextInput value={form.email} onChange={set("email")} placeholder="name@example.com" />
-        </Field>
-        <Field label="Address" className="grow" style={{ gridColumn: "1 / -1" }}>
-          <TextInput value={form.address} onChange={set("address")} placeholder="House, village / town, taluka" />
-        </Field>
-        <Field label="ID proof" hint="e.g. Aadhaar or PAN number">
-          <TextInput value={form.idProof} onChange={set("idProof")} placeholder="Aadhaar XXXX 1234" />
-        </Field>
-        <Field label="Occupation">
-          <TextInput value={form.occupation} onChange={set("occupation")} placeholder="e.g. Shop owner" />
-        </Field>
-        <Field label="Joined on">
-          <input type="date" value={form.joinedAt} onChange={set("joinedAt")} />
-        </Field>
+        {deposits && (
+          <Field label={t("Monthly deposit (₹)")} hint={`Due on day ${state.rules.depositDueDay}, late after day ${state.rules.depositDeadlineDay}`}>
+            <NumberInput value={form.monthlyDeposit} onChange={set("monthlyDeposit")} min="0" />
+          </Field>
+        )}
         {editMember && (
           <Field label="Status">
-            <select value={form.status} onChange={set("status")}>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
+            <Choice
+              label="Status"
+              value={form.status}
+              onChange={(v) => setForm((f) => ({ ...f, status: v }))}
+              options={[
+                ["active", "Active"],
+                ["inactive", "Left the kopri"],
+              ]}
+            />
           </Field>
         )}
 
-        {deposits && (
-          <>
-            <Field label="Monthly deposit (₹)" hint={`Due on day ${state.rules.depositDueDay}, late after day ${state.rules.depositDeadlineDay}`}>
-              <NumberInput value={form.monthlyDeposit} onChange={set("monthlyDeposit")} min="0" />
-            </Field>
-            <Field label="Deposits start from" hint="First month a deposit is due">
-              <input type="month" value={form.depositStartMonth} onChange={set("depositStartMonth")} />
-            </Field>
-            <Field label="Nominee">
-              <TextInput value={form.nominee} onChange={set("nominee")} placeholder="Name and relation" />
-            </Field>
-            {!editMember && (
-              <Field label="Opening deposit (₹)" hint="Optional one-off amount, not counted as a monthly deposit">
+        <details className="more-options">
+          <summary>{t("More details (optional)")}</summary>
+          <div className="form-grid">
+            {deposits && (
+              <Field label="Deposits start from" hint="First month a deposit is due">
+                <input type="month" value={form.depositStartMonth} onChange={set("depositStartMonth")} />
+              </Field>
+            )}
+            {deposits && !editMember && (
+              <Field label="Opening amount (₹)" hint="Optional one-off amount, not a monthly deposit">
                 <NumberInput value={initialContribution} onChange={(e) => setInitialContribution(e.target.value)} min="0" />
               </Field>
             )}
-          </>
-        )}
-        <Field label="Notes" className="grow" style={{ gridColumn: "1 / -1" }}>
-          <TextInput value={form.notes} onChange={set("notes")} placeholder="Anything worth remembering" />
-        </Field>
+            <Field label="Joined on">
+              <input type="date" value={form.joinedAt} onChange={set("joinedAt")} />
+            </Field>
+            {deposits && (
+              <Field label="Nominee">
+                <TextInput value={form.nominee} onChange={set("nominee")} placeholder="Name and relation" />
+              </Field>
+            )}
+            <Field label="Address" className="grow" style={{ gridColumn: "1 / -1" }}>
+              <TextInput value={form.address} onChange={set("address")} placeholder="House, village / town, taluka" />
+            </Field>
+            <Field label="ID proof" hint="e.g. Aadhaar or PAN number">
+              <TextInput value={form.idProof} onChange={set("idProof")} placeholder="Aadhaar XXXX 1234" />
+            </Field>
+            <Field label="Occupation">
+              <TextInput value={form.occupation} onChange={set("occupation")} placeholder="e.g. Shop owner" />
+            </Field>
+            <Field label="Email">
+              <input type="email" inputMode="email" value={form.email} onChange={set("email")} placeholder="name@example.com" />
+            </Field>
+            <Field label="Notes" className="grow" style={{ gridColumn: "1 / -1" }}>
+              <TextInput value={form.notes} onChange={set("notes")} placeholder="Anything worth remembering" />
+            </Field>
+          </div>
+        </details>
       </div>
     </Modal>
   );
@@ -378,7 +408,7 @@ export function MemberFormModal({ open, onClose, editMember = null, defaultRole 
 
 // -------------------------------------------------------------- LoanForm
 export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId = "" }) {
-  const { state, addLoan, updateLoan } = useKopri();
+  const { state, addLoan, updateLoan, t } = useKopri();
   const rules = state.rules;
   const [form, setForm] = useState(() =>
     editLoan
@@ -406,6 +436,15 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
         }
   );
   const [showNewBorrower, setShowNewBorrower] = useState(false);
+  // New loans go step by step: who → how much → check. Editing shows everything.
+  const wizard = !editLoan;
+  const [step, setStep] = useState(0);
+  const wasOpenLoan = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpenLoan.current) setStep(0);
+    wasOpenLoan.current = open;
+  }, [open]);
+  const vis = (n) => (!wizard || step === n ? undefined : { display: "none" });
   const people = state.members.filter((m) => m.status === "active" || m.id === form.memberId);
   const referrers = eligibleReferrers(state.members, form.memberId);
   // Editing a loan made before the rule existed shouldn't force a referral.
@@ -431,6 +470,34 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
   const customOk = !isCustom || (customRows.length === tenure && Math.abs(customTotal - (Number(form.principal) || 0)) < 1);
 
   const valid = form.memberId && Number(form.principal) > 0 && Number(form.tenureMonths) > 0 && customOk && !referralError;
+  const stepOk = [!!form.memberId && !referralError, Number(form.principal) > 0 && Number(form.tenureMonths) > 0, valid];
+
+  // One plain sentence: what the borrower pays each month and in total.
+  const summary = useMemo(() => {
+    const p = Number(form.principal) || 0;
+    if (p <= 0 || tenure < 1 || tenure > 600) return "";
+    try {
+      const sched = buildSchedule({
+        ...form,
+        principal: p,
+        rate: Number(form.rate) || 0,
+        tenureMonths: tenure,
+        customPrincipalSchedule: isCustom ? customRows.map((v) => Number(v) || 0) : null,
+      });
+      if (!sched.length) return "";
+      const totals = sched.map((i) => i.principalDue + i.interestDue);
+      const interest = round2(sched.reduce((a, i) => a + i.interestDue, 0));
+      const first = round2(totals[0]);
+      const same = totals.every((t) => Math.abs(t - totals[0]) < 1);
+      const name = state.members.find((m) => m.id === form.memberId)?.name.split(" ")[0] || "The borrower";
+      return (same
+        ? `${name} pays ${formatINR(first)} every month for ${sched.length} months. Total ${formatINR(p + interest)} (${formatINR(interest)} interest).`
+        : `${name} pays ${formatINR(first)} first, ${sched.length} payments in all. Total ${formatINR(p + interest)} (${formatINR(interest)} interest).`
+      ) + ` First payment due ${formatDate(sched[0].dueDate)}.`;
+    } catch {
+      return "";
+    }
+  }, [form, tenure, isCustom, customRows, state.members]);
 
   const submit = () => {
     if (!valid) return;
@@ -469,22 +536,40 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
     <Modal
       open={open}
       onClose={onClose}
-      title={editLoan ? "Edit Loan" : "Create Loan"}
+      title={editLoan ? "Edit loan" : t("New loan")}
       wide
       footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={submit} disabled={!valid}>
-            {editLoan ? "Save changes" : "Create loan & disburse"}
-          </Button>
-        </>
+        wizard && step < 2 ? (
+          <>
+            {step === 0 ? <Button onClick={onClose}>{t("Cancel")}</Button> : <Button onClick={() => setStep(step - 1)}>{t("Back")}</Button>}
+            <Button variant="primary" onClick={() => setStep(step + 1)} disabled={!stepOk[step]}>
+              {t("Next")}
+            </Button>
+          </>
+        ) : (
+          <>
+            {wizard ? <Button onClick={() => setStep(1)}>{t("Back")}</Button> : <Button onClick={onClose}>{t("Cancel")}</Button>}
+            <Button variant="primary" onClick={submit} disabled={!valid}>
+              {editLoan ? "Save changes" : t("Give loan")}
+            </Button>
+          </>
+        )
       }
     >
-      <div className="form-grid">
-        <Field label="Borrower" className="grow">
+      {wizard && (
+        <div className="wizard-steps" aria-label={`Step ${step + 1} of 3`}>
+          {["Who", "How much", "Check"].map((l, i) => (
+            <span key={l} className={i === step ? "on" : i < step ? "done" : ""}>
+              {i + 1}. {t(l)}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="form-grid" style={vis(0)}>
+        <Field label={t("Who takes the loan?")} className="grow">
           <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
             <select value={form.memberId} onChange={set("memberId")} style={{ flex: 1, minWidth: 0 }}>
-              <option value="">Select borrower…</option>
+              <option value="">Choose who takes the loan…</option>
               {people.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
@@ -493,19 +578,19 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
               ))}
             </select>
             {!editLoan && (
-              <Button type="button" size="sm" onClick={() => setShowNewBorrower(true)} title="Add a new borrower profile">
+              <Button type="button" size="sm" onClick={() => setShowNewBorrower(true)} title="Add a new person">
                 + New
               </Button>
             )}
           </div>
         </Field>
         <Field
-          label={referralNeeded ? "Referred by (member)" : "Referred by (optional)"}
+          label={referralNeeded ? "Recommended by (member)" : "Recommended by (optional)"}
           className="grow"
-          hint={referralError && form.memberId ? referralError : "An active depositing member who vouches for the borrower"}
+          hint={referralError && form.memberId ? referralError : "A member who vouches for the borrower"}
         >
           <select value={form.referredById || ""} onChange={set("referredById")}>
-            <option value="">Select member…</option>
+            <option value="">Choose a member…</option>
             {referrers.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -513,54 +598,74 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
             ))}
           </select>
         </Field>
-        <Field label="Principal (₹)">
+      </div>
+      <div className="form-grid" style={vis(1)}>
+        <Field label={t("Loan amount (₹)")}>
           <NumberInput value={form.principal} onChange={set("principal")} min="0" />
         </Field>
-        <Field label="Interest rate">
-          <NumberInput value={form.rate} onChange={set("rate")} min="0" step="0.1" />
-        </Field>
-        <Field label="Rate unit">
-          <select value={form.rateUnit} onChange={set("rateUnit")}>
-            <option value="monthly">Per month</option>
-            <option value="yearly">Per year</option>
-          </select>
-        </Field>
-
-        <Field label="Interest method">
-          <select value={form.interestMethod} onChange={set("interestMethod")}>
-            <option value={INTEREST_METHODS.FLAT}>Flat</option>
-            <option value={INTEREST_METHODS.REDUCING_BALANCE}>Reducing balance</option>
-            <option value={INTEREST_METHODS.DAILY_OUTSTANDING}>Daily outstanding</option>
-          </select>
-        </Field>
-        <Field label="Interest collected">
-          <select value={form.interestCollection} onChange={set("interestCollection")}>
-            <option value={INTEREST_COLLECTION.MONTHLY}>Monthly</option>
-            <option value={INTEREST_COLLECTION.QUARTERLY}>Quarterly</option>
-            <option value={INTEREST_COLLECTION.AT_CLOSURE}>At closure</option>
-          </select>
-        </Field>
-        <Field label="Principal repayment">
-          <select value={form.principalRepayment} onChange={set("principalRepayment")}>
-            <option value={PRINCIPAL_REPAYMENT.MONTHLY}>Monthly</option>
-            <option value={PRINCIPAL_REPAYMENT.QUARTERLY}>Quarterly</option>
-            <option value={PRINCIPAL_REPAYMENT.LUMP_SUM}>Lump sum at end</option>
-            <option value={PRINCIPAL_REPAYMENT.CUSTOM}>Custom</option>
-          </select>
-        </Field>
-        <Field label="Tenure (months)">
+        <Field label={t("Number of months")}>
           <NumberInput value={form.tenureMonths} onChange={set("tenureMonths")} min="1" />
         </Field>
 
+        <Field label={t("Interest (%)")}>
+          <NumberInput value={form.rate} onChange={set("rate")} min="0" step="0.1" />
+        </Field>
+        <Field label={t("Interest per")}>
+          <Choice
+            label={t("Interest per")}
+            value={form.rateUnit}
+            onChange={(v) => setForm((f) => ({ ...f, rateUnit: v }))}
+            options={[
+              ["monthly", t("Month")],
+              ["yearly", t("Year")],
+            ]}
+          />
+        </Field>
+
+        <Field label={t("Loan given on")}>
+          <input type="date" value={form.startDate} onChange={set("startDate")} />
+        </Field>
+      </div>
+      <div className="form-grid" style={vis(2)}>
+        {summary && (
+          <div className="loan-summary" style={{ gridColumn: "1 / -1" }}>
+            {summary}
+          </div>
+        )}
+        <details className="more-options">
+          <summary>More options: interest method, late fees, guarantors</summary>
+          <div className="form-grid">
+        <Field label="How interest is worked out">
+          <select value={form.interestMethod} onChange={set("interestMethod")}>
+            <option value={INTEREST_METHODS.FLAT}>Flat: same interest every month</option>
+            <option value={INTEREST_METHODS.REDUCING_BALANCE}>Reducing: only on what is still owed</option>
+            <option value={INTEREST_METHODS.DAILY_OUTSTANDING}>Daily: by days, on what is still owed</option>
+          </select>
+        </Field>
+        <Field label="Interest is paid">
+          <select value={form.interestCollection} onChange={set("interestCollection")}>
+            <option value={INTEREST_COLLECTION.MONTHLY}>Every month</option>
+            <option value={INTEREST_COLLECTION.QUARTERLY}>Every 3 months</option>
+            <option value={INTEREST_COLLECTION.AT_CLOSURE}>At the end</option>
+          </select>
+        </Field>
+        <Field label="Loan amount is paid back">
+          <select value={form.principalRepayment} onChange={set("principalRepayment")}>
+            <option value={PRINCIPAL_REPAYMENT.MONTHLY}>Every month</option>
+            <option value={PRINCIPAL_REPAYMENT.QUARTERLY}>Every 3 months</option>
+            <option value={PRINCIPAL_REPAYMENT.LUMP_SUM}>All at the end</option>
+            <option value={PRINCIPAL_REPAYMENT.CUSTOM}>My own amounts</option>
+          </select>
+        </Field>
         {isCustom && tenure > 0 && (
           <Field
-            label="Principal due each month (₹)"
+            label="Loan part due each month (₹)"
             className="grow"
             style={{ gridColumn: "1 / -1" }}
             hint={
               customOk
                 ? `Adds up to ${formatINR(customTotal)}`
-                : `Adds up to ${formatINR(customTotal)}, needs to equal the principal ${formatINR(Number(form.principal) || 0)}`
+                : `Adds up to ${formatINR(customTotal)}, needs to equal the loan amount ${formatINR(Number(form.principal) || 0)}`
             }
           >
             <div className="custom-schedule">
@@ -578,37 +683,34 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
           </Field>
         )}
 
-        <Field label="Start date">
-          <input type="date" value={form.startDate} onChange={set("startDate")} />
-        </Field>
-        <Field label="Grace period (days)">
+        <Field label="Days allowed after due date">
           <NumberInput value={form.gracePeriodDays} onChange={set("gracePeriodDays")} min="0" />
         </Field>
-        <Field label="Late payment rule">
+        <Field label="If an EMI is late">
           <select value={form.lateRule} onChange={set("lateRule")}>
-            <option value={LATE_RULES.GRACE_ONLY}>Grace period only</option>
-            <option value={LATE_RULES.NORMAL_INTEREST}>Normal interest continues</option>
-            <option value={LATE_RULES.ADDITIONAL_INTEREST}>Additional interest</option>
-            <option value={LATE_RULES.FIXED_PENALTY}>Fixed penalty</option>
-            <option value={LATE_RULES.PERCENTAGE_PENALTY}>Percentage penalty</option>
+            <option value={LATE_RULES.GRACE_ONLY}>No late charge</option>
+            <option value={LATE_RULES.NORMAL_INTEREST}>Normal interest keeps running</option>
+            <option value={LATE_RULES.ADDITIONAL_INTEREST}>Extra interest</option>
+            <option value={LATE_RULES.FIXED_PENALTY}>Fixed late fee</option>
+            <option value={LATE_RULES.PERCENTAGE_PENALTY}>Late fee as %</option>
           </select>
         </Field>
         {form.lateRule === LATE_RULES.ADDITIONAL_INTEREST && (
-          <Field label="Additional late interest (% / month)">
+          <Field label="Extra late interest (% per month)">
             <NumberInput value={form.lateAdditionalInterestRate} onChange={set("lateAdditionalInterestRate")} min="0" step="0.1" />
           </Field>
         )}
         {form.lateRule === LATE_RULES.FIXED_PENALTY && (
-          <Field label="Late fee per overdue installment (₹)">
+          <Field label="Late fee per late EMI (₹)">
             <NumberInput value={form.lateFixedPenalty} onChange={set("lateFixedPenalty")} min="0" />
           </Field>
         )}
         {form.lateRule === LATE_RULES.PERCENTAGE_PENALTY && (
-          <Field label="Late fee (% of overdue amount)">
+          <Field label="Late fee (% of the late amount)">
             <NumberInput value={form.latePercentagePenalty} onChange={set("latePercentagePenalty")} min="0" step="0.1" />
           </Field>
         )}
-        <Field label="Unpaid interest at year end" hint="Applied on the Year End page when the allocation is saved">
+        <Field label="Interest still unpaid at year end">
           <select value={form.unpaidInterestRule} onChange={set("unpaidInterestRule")}>
             {Object.entries(UNPAID_INTEREST_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
@@ -617,32 +719,38 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
             ))}
           </select>
         </Field>
-        <Field label="Guarantors" hint="Hold Ctrl/Cmd to pick multiple">
-          <select
-            multiple
-            value={form.guarantorIds}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                guarantorIds: Array.from(e.target.selectedOptions).map((o) => o.value),
-              }))
-            }
-          >
+        <Field label="Guarantors" className="grow" style={{ gridColumn: "1 / -1" }} hint="Tick everyone who stands guarantee">
+          <div className="check-grid">
             {state.members
               .filter((m) => m.id !== form.memberId && m.status === "active")
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-          </select>
+              .map((m) => {
+                const on = (form.guarantorIds || []).includes(m.id);
+                return (
+                  <label key={m.id} className={`check-chip ${on ? "on" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() =>
+                        setForm((f) => {
+                          const ids = Array.isArray(f.guarantorIds) ? f.guarantorIds : [];
+                          return { ...f, guarantorIds: on ? ids.filter((x) => x !== m.id) : [...ids, m.id] };
+                        })
+                      }
+                    />
+                    {m.name}
+                  </label>
+                );
+              })}
+          </div>
         </Field>
-        <Field label="Security / collateral" className="grow">
+        <Field label="Security (gold, papers…)" className="grow">
           <TextInput value={form.security} onChange={set("security")} placeholder="e.g. Gold jewellery, property papers" />
         </Field>
         <Field label="Notes" className="grow" style={{ gridColumn: "1 / -1" }}>
           <TextInput value={form.notes} onChange={set("notes")} placeholder="Purpose, terms, anything" />
         </Field>
+          </div>
+        </details>
       </div>
       <MemberFormModal
         open={showNewBorrower}
@@ -669,7 +777,7 @@ const monthName = (ym) => {
 };
 
 export function EventFormModal({ open, onClose, preset = {}, editEvent = null, onDelete = null }) {
-  const { state, addEvent, updateEvent } = useKopri();
+  const { state, addEvent, updateEvent, t } = useKopri();
 
   function makeForm() {
     if (editEvent) {
@@ -680,7 +788,7 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
     return {
       type: EVENT_TYPES.CONTRIBUTION,
       date: todayISO(),
-      amount: "1000",
+      amount: "",
       memberId: "",
       loanId: "",
       account: ACCOUNTS.CASH,
@@ -855,17 +963,17 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
   };
 
   const typeOptions = [
-    [EVENT_TYPES.CONTRIBUTION, "Member contribution"],
-    [EVENT_TYPES.WITHDRAWAL, "Member withdrawal"],
-    [EVENT_TYPES.LOAN_DISBURSEMENT, "Loan disbursement"],
-    [EVENT_TYPES.PRINCIPAL_PAYMENT, "Principal repayment"],
-    [EVENT_TYPES.INTEREST_PAYMENT, "Interest received"],
-    [EVENT_TYPES.LATE_FEE, "Late fee / penalty"],
-    [EVENT_TYPES.EXPENSE, "Expense"],
-    [EVENT_TYPES.OTHER_INCOME, "Other income"],
-    [EVENT_TYPES.TRANSFER, "Transfer (cash ↔ bank)"],
-    [EVENT_TYPES.ADJUSTMENT, "Adjustment"],
-    [EVENT_TYPES.LOAN_WRITE_OFF, "Bad debt write-off"],
+    [EVENT_TYPES.CONTRIBUTION, "Deposit from a member"],
+    [EVENT_TYPES.PRINCIPAL_PAYMENT, "Loan repayment (loan part)"],
+    [EVENT_TYPES.INTEREST_PAYMENT, "Interest received on a loan"],
+    [EVENT_TYPES.LATE_FEE, "Late fee"],
+    [EVENT_TYPES.EXPENSE, "Money spent (expense)"],
+    [EVENT_TYPES.OTHER_INCOME, "Other money received"],
+    [EVENT_TYPES.WITHDRAWAL, "Money returned to a member"],
+    [EVENT_TYPES.TRANSFER, "Move money between cash and bank"],
+    [EVENT_TYPES.LOAN_DISBURSEMENT, "Loan given (better: use New loan)"],
+    [EVENT_TYPES.ADJUSTMENT, "Correction"],
+    [EVENT_TYPES.LOAN_WRITE_OFF, "Loan can't be recovered"],
   ];
 
   return (
@@ -874,12 +982,14 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
       onClose={onClose}
       title={
         editEvent
-          ? "Edit Transaction"
+          ? "Edit entry"
           : isQuickPay
-            ? "Record Installment Payment"
+            ? t("Record EMI payment")
             : isDepositFee
-              ? `Deposit Late Fee · ${monthName(form.depositMonth)}`
-              : "Record Transaction"
+              ? `Deposit late fee · ${monthName(form.depositMonth)}`
+              : isContribution && preset.depositMonth
+                ? `Deposit · ${monthName(preset.depositMonth)}`
+                : t("Record money in or out")
       }
       footer={
         <>
@@ -892,21 +1002,21 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
               Delete
             </Button>
           )}
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t("Cancel")}</Button>
           <Button variant="primary" onClick={submit} disabled={!valid}>
-            {editEvent ? "Save changes" : isQuickPay ? "Record payment" : "Record"}
+            {editEvent ? "Save changes" : isQuickPay ? t("Save payment") : t("Save")}
           </Button>
         </>
       }
     >
       <div className="form-grid">
-        <Field label="Event type" className="grow" style={{ gridColumn: "1 / -1" }}>
+        <Field label={isQuickPay ? t("What did they pay?") : "What is it?"} className="grow" style={{ gridColumn: "1 / -1" }}>
           {isQuickPay ? (
             <>
               <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                 {[
-                  { key: "pi", label: "Principal + interest", amount: instLeft.principal + instLeft.interest },
-                  { key: "p", label: "Principal only", amount: instLeft.principal },
+                  { key: "pi", label: "Full EMI", amount: instLeft.principal + instLeft.interest },
+                  { key: "p", label: "Loan part only", amount: instLeft.principal },
                   { key: "i", label: "Interest only", amount: instLeft.interest },
                 ].map((m) => (
                   <Button
@@ -919,7 +1029,7 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
                       setForm((f) => ({ ...f, amount: String(round2(Math.max(m.amount, 0))) }));
                     }}
                   >
-                    {m.label}
+                    {t(m.label)}
                   </Button>
                 ))}
               </div>
@@ -956,18 +1066,18 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
             </select>
           )}
         </Field>
-        <Field label="Date">
+        <Field label={t("Date")}>
           <input type="date" value={form.date} onChange={set("date")} />
         </Field>
-        <Field label="Amount (₹)">
-          <NumberInput value={form.amount} onChange={set("amount")} min="0" />
+        <Field label={t("Amount (₹)")}>
+          <NumberInput value={form.amount} onChange={set("amount")} min="0" placeholder="0" />
         </Field>
 
         {isAdjustment && (
           <Field label="Direction">
             <select value={form.sign} onChange={set("sign")}>
-              <option value="positive">Add to pool (+)</option>
-              <option value="negative">Deduct from pool (−)</option>
+              <option value="positive">Add money (+)</option>
+              <option value="negative">Take money off (−)</option>
             </select>
           </Field>
         )}
@@ -988,18 +1098,23 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
             </Field>
           </>
         ) : (
-          <Field label="Account">
-            <select value={form.account} onChange={set("account")}>
-              <option value={ACCOUNTS.CASH}>Cash</option>
-              <option value={ACCOUNTS.BANK}>Bank</option>
-            </select>
+          <Field label={t("Cash or bank")}>
+            <Choice
+              label={t("Cash or bank")}
+              value={form.account}
+              onChange={(v) => setForm((f) => ({ ...f, account: v }))}
+              options={[
+                [ACCOUNTS.CASH, t("Cash")],
+                [ACCOUNTS.BANK, t("Bank / UPI")],
+              ]}
+            />
           </Field>
         )}
 
         {needsMember && (
-          <Field label="Member">
+          <Field label="Person">
             <select value={form.memberId} onChange={set("memberId")}>
-              <option value="">Select member…</option>
+              <option value="">Choose a person…</option>
               {state.members.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
@@ -1010,16 +1125,16 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
         )}
 
         {isContribution && depositMonths.length > 0 && (
-          <Field label="Counts as" hint="Which monthly deposit this pays">
+          <Field label="For which month">
             <select value={form.depositFor} onChange={set("depositFor")}>
-              <option value="auto">Monthly deposit, oldest unpaid month first</option>
+              <option value="auto">Oldest unpaid month first</option>
               {depositMonths.map((m) => (
                 <option key={m.month} value={m.month}>
                   {monthName(m.month)}
                   {m.left > 0.5 && m.status !== "upcoming" ? ` (${formatINR(m.left)} left)` : m.status === "paid" || m.status === "paid_late" ? " (paid)" : ""}
                 </option>
               ))}
-              <option value="lump">One-off / lump sum (not a monthly deposit)</option>
+              <option value="lump">Extra one-off amount (not a monthly deposit)</option>
             </select>
           </Field>
         )}
@@ -1034,18 +1149,18 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
                 setForm((f) => ({ ...f, loanId, memberId: l ? l.memberId : f.memberId }));
               }}
             >
-              <option value="">Select loan…</option>
+              <option value="">Choose a loan…</option>
               {state.loans.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.id} — {state.members.find((m) => m.id === l.memberId)?.name}
+                  {state.members.find((m) => m.id === l.memberId)?.name} · {formatINR(l.principal)} from {formatDate(l.startDate)}
                 </option>
               ))}
             </select>
           </Field>
         )}
 
-        <Field label="Description" className="grow" style={{ gridColumn: "1 / -1" }}>
-          <TextInput value={form.description} onChange={set("description")} placeholder="Short note for the ledger" />
+        <Field label={t("Note (optional)")} className="grow" style={{ gridColumn: "1 / -1" }}>
+          <TextInput value={form.description} onChange={set("description")} placeholder="e.g. paid by son, UPI ref 1234" />
         </Field>
       </div>
     </Modal>

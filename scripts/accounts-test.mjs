@@ -35,10 +35,10 @@ try {
 
   // ------------------------------------------------------------ desktop
   await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: SHOTS ? 2 : 1 });
-  await page.goto(BASE, { waitUntil: "networkidle0" });
+  await page.goto(`${BASE}/overview`, { waitUntil: "networkidle0" });
   await sleep(600);
   const poolAssets = await page.evaluate(() => {
-    const card = [...document.querySelectorAll(".stat-card")].find((c) => c.innerText.includes("Total Pool Assets"));
+    const card = [...document.querySelectorAll(".stat-card")].find((c) => c.innerText.includes("Total kopri money"));
     return card.querySelector(".stat-value").innerText.trim();
   });
   ok("dashboard links to the accounts tree", !!(await page.$('a[href="/accounts"].acct-dash-link')));
@@ -46,7 +46,7 @@ try {
   await page.goto(`${BASE}/accounts`, { waitUntil: "networkidle0" });
   await sleep(500);
   ok("the five top-level groups show", (await Promise.all(["assets", "funds", "income", "expenses", "shared"].map((id) => rowExists(page, id)))).every(Boolean));
-  ok("assets total equals the dashboard's Total Pool Assets", (await rowAmount(page, "assets")) === poolAssets, `${await rowAmount(page, "assets")} vs ${poolAssets}`);
+  ok("assets total equals the overview's total kopri money", (await rowAmount(page, "assets")) === poolAssets, `${await rowAmount(page, "assets")} vs ${poolAssets}`);
   ok("members' funds equal assets (balanced)", (await rowAmount(page, "funds")) === (await rowAmount(page, "assets")));
   ok("top groups start open, sub-accounts closed", (await rowExists(page, "cash-bank")) && !(await rowExists(page, "cash")));
 

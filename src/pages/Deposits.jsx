@@ -82,7 +82,7 @@ export default function Deposits() {
     <div className="stack">
       <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
-          <div className="page-title">Monthly Deposits</div>
+          <div className="page-title">Deposit chart</div>
           <div className="page-sub">
             Due on day {rules.depositDueDay} of each month, late after day {rules.depositDeadlineDay} · {lateFeeRuleText(rules)} ·{" "}
             <Link to="/rules" style={{ textDecoration: "underline" }}>
@@ -114,7 +114,7 @@ export default function Deposits() {
           foot={summary.unpaid.length ? summary.unpaid.map((u) => u.member.name.split(" ")[0]).join(", ") : "Everyone has paid"}
           color="var(--amber)"
         />
-        <StatCard label="Total arrears" value={formatINR(summary.arrears)} foot={`${summary.lateMembers.length} member(s) behind`} color="var(--red)" />
+        <StatCard label="Total unpaid" value={formatINR(summary.arrears)} foot={`${summary.lateMembers.length} member(s) behind`} color="var(--red)" />
         <StatCard label="Late fees due" value={formatINR(summary.lateFeesDue)} foot={lateFeeRuleText(rules)} color="var(--violet)" />
       </div>
 
@@ -136,7 +136,7 @@ export default function Deposits() {
         </div>
       )}
 
-      <Card title="Deposit grid" sub="Click a red or amber month to record the deposit, or a paid-late month to collect its late fee" pad={false}>
+      <Card title="Deposit grid" sub="Tap a red or orange month to record the deposit, or a green month with a dot to collect its late fee" pad={false}>
         {rows.length === 0 ? (
           <EmptyState icon="🗓️" title="No deposits scheduled in this year" sub="Add depositing members with a monthly deposit amount." />
         ) : (
@@ -150,7 +150,7 @@ export default function Deposits() {
                       {monthShort(ym)}
                     </th>
                   ))}
-                  <th className="num">Arrears</th>
+                  <th className="num">Unpaid</th>
                 </tr>
               </thead>
               <tbody>

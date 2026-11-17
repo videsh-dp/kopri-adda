@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconClose } from "./Icons.jsx";
 import { avatarColor, initials } from "../lib/format.js";
+import { useT } from "../state/KopriContext.jsx";
 
 // ---------------------------------------------------------------- Card
 export function Card({ title, sub, actions, children, pad = true, className = "" }) {
@@ -54,20 +55,22 @@ export function Badge({ tone = "gray", dot = false, children, style }) {
   );
 }
 
+// One colour code everywhere: green = paid / fine, orange = due, red = late.
 export function StatusBadge({ status }) {
+  const t = useT();
   const map = {
-    active: <Badge tone="green" dot>Active</Badge>,
-    inactive: <Badge tone="gray">Inactive</Badge>,
-    draft: <Badge tone="gray">Draft</Badge>,
-    overdue: <Badge tone="red" dot>Overdue</Badge>,
-    completed: <Badge tone="teal" dot>Completed</Badge>,
-    defaulted: <Badge tone="red" dot>Defaulted</Badge>,
-    paid: <Badge tone="green">Paid</Badge>,
-    due: <Badge tone="amber">Due</Badge>,
-    paid_late: <Badge tone="amber">Paid late</Badge>,
-    late: <Badge tone="red" dot>Late</Badge>,
-    upcoming: <Badge tone="gray">Upcoming</Badge>,
-    written_off: <Badge tone="gray">Written off</Badge>,
+    active: <Badge tone="green" dot>{t("Active")}</Badge>,
+    inactive: <Badge tone="gray">{t("Inactive")}</Badge>,
+    draft: <Badge tone="gray">{t("Draft")}</Badge>,
+    overdue: <Badge tone="red" dot>{t("Late")}</Badge>,
+    completed: <Badge tone="green" dot>{t("Closed")}</Badge>,
+    defaulted: <Badge tone="red" dot>{t("Not paying")}</Badge>,
+    paid: <Badge tone="green" dot>{t("Paid")}</Badge>,
+    due: <Badge tone="amber" dot>{t("Due")}</Badge>,
+    paid_late: <Badge tone="green" dot>{t("Paid late")}</Badge>,
+    late: <Badge tone="red" dot>{t("Late")}</Badge>,
+    upcoming: <Badge tone="gray">{t("Not due yet")}</Badge>,
+    written_off: <Badge tone="gray">{t("Can't recover")}</Badge>,
   };
   return map[status] || <Badge tone="gray">{status}</Badge>;
 }
@@ -182,8 +185,22 @@ export function TextInput(props) {
   return <input type="text" {...props} />;
 }
 
+// Opens the number pad on phones.
 export function NumberInput(props) {
-  return <input type="number" step="any" {...props} />;
+  return <input type="number" step="any" inputMode="decimal" {...props} />;
+}
+
+// Two or three big buttons instead of a dropdown, e.g. Cash | Bank.
+export function Choice({ value, onChange, options, label }) {
+  return (
+    <div className="seg seg-full" role="group" aria-label={label}>
+      {options.map(([v, l]) => (
+        <button type="button" key={v} className={value === v ? "on" : ""} aria-pressed={value === v} onClick={() => onChange(v)}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // --------------------------------------------------------------- Avatar
@@ -232,54 +249,49 @@ export function SectionTitle({ children, sub, right }) {
 }
 
 // --------------------------------------------------------------- Toast
+// toast("Saved") or toast("Recorded", { actions: [{ label: "Undo", onClick }], duration: 7000 })
 let toastListeners = [];
-export function toast(msg) {
-  toastListeners.forEach((cb) => cb(msg));
-  setTimeout(() => toastListeners.forEach((cb) => cb("»")), 3600);
-  setTimeout(() => toastListeners.forEach((cb) => cb(null)), 3700);
+let toastTimer = null;
+export function toast(msg, { actions = [], duration } = {}) {
+  const t = { msg, actions, id: Math.random() };
+  toastListeners.forEach((cb) => cb(t));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastListeners.forEach((cb) => cb(null)), duration ?? (actions.length ? 7000 : 3600));
+}
+export function dismissToast() {
+  clearTimeout(toastTimer);
+  toastListeners.forEach((cb) => cb(null));
 }
 
 export function useToast() {
-  const [msg, setMsg] = useState(null);
+  const [t, setT] = useState(null);
   useEffect(() => {
-    const idx = toastListeners.length;
-    toastListeners.push(setMsg);
+    toastListeners.push(setT);
     return () => {
-      toastListeners.splice(idx, 1);
+      toastListeners = toastListeners.filter((cb) => cb !== setT);
     };
   }, []);
-  return msg;
+  return t;
 }
 
 export function ToastHost() {
-  const msg = useToast();
-  if (!msg) return null;
+  const t = useToast();
+  if (!t) return null;
   return (
-    <div
-      className="toast"
-      style={{
-        position: "fixed",
-        bottom: "calc(84px + env(safe-area-inset-bottom, 0px))",
-        // Centred with auto margins, not left:50% + translate: that caps the
-        // width at half the screen and wraps short messages on phones
-        left: 0,
-        right: 0,
-        marginInline: "auto",
-        width: "max-content",
-        background: "var(--bg-elev)",
-        border: "1px solid var(--border-strong)",
-        borderRadius: 12,
-        padding: "10px 18px",
-        boxShadow: "var(--shadow-lg)",
-        zIndex: 200,
-        fontWeight: 600,
-        fontSize: 13.5,
-        color: "var(--text)",
-        maxWidth: "min(520px, calc(100vw - 32px))",
-        textAlign: "center",
-      }}
-    >
-      {msg}
+    <div className={`toast ${t.actions.length ? "toast-actions" : ""}`} role="status" aria-live="polite">
+      <span className="toast-msg">{t.msg}</span>
+      {t.actions.map((a) => (
+        <button
+          key={a.label}
+          className="toast-btn"
+          onClick={() => {
+            a.onClick?.();
+            dismissToast();
+          }}
+        >
+          {a.label}
+        </button>
+      ))}
     </div>
   );
 }

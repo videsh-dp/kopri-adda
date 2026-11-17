@@ -5,8 +5,8 @@ import { deriveMember, deriveLoan, sortLedger, deriveDeposits, isDepositor, memb
 import { formatINR, formatDate, round2, todayISO } from "../lib/format.js";
 import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState } from "../components/ui.jsx";
 import { EventFormModal, MemberFormModal } from "../components/modals.jsx";
-import { IconPlus, IconArrow, IconCash } from "../components/Icons.jsx";
-import { EVENT_TYPES, MEMBER_ROLE_LABELS } from "../lib/constants.js";
+import { IconPlus, IconArrow, IconCash, IconPrint } from "../components/Icons.jsx";
+import { EVENT_TYPES, MEMBER_ROLE_SHORT, eventLabel } from "../lib/constants.js";
 import { toast } from "../components/ui.jsx";
 
 const monthName = (ym) => {
@@ -51,19 +51,7 @@ export default function MemberDetail() {
     );
   }
 
-  const eventLabel = (t) =>
-    ({
-      MEMBER_CONTRIBUTION: "Contribution",
-      MEMBER_WITHDRAWAL: "Withdrawal",
-      LOAN_DISBURSEMENT: "Disbursement",
-      PRINCIPAL_PAYMENT: "Principal repaid",
-      INTEREST_PAYMENT: "Interest paid",
-      LATE_FEE: "Late fee",
-      LOAN_WRITE_OFF: "Write-off",
-      PROFIT_ALLOCATION: "Profit allocated",
-      MEMBER_SETTLEMENT: "Settlement",
-      ADJUSTMENT: "Adjustment",
-    }[t] || t);
+
 
   return (
     <div className="stack">
@@ -94,6 +82,9 @@ export default function MemberDetail() {
           <Button size="sm" variant="danger" onClick={() => { setShowEvent({ type: EVENT_TYPES.WITHDRAWAL, memberId: id }); setQuickRecord(null); }}>
             Withdrawal
           </Button>
+          <Link to={`/members/${id}/statement`} className="btn btn-sm">
+            <IconPrint /> Statement
+          </Link>
           <Button size="sm" variant="ghost" onClick={() => { setQuickRecord({ memberId: id }); setShowEvent({}); }}>
             <IconPlus /> Record transaction
           </Button>
@@ -119,7 +110,7 @@ export default function MemberDetail() {
               <div style={{ marginTop: 6 }}>
                 <StatusBadge status={member.status} />
                 <Badge tone={isDepositor(member) ? "violet" : "gray"} style={{ marginLeft: 5 }}>
-                  {MEMBER_ROLE_LABELS[memberRole(member)]}
+                  {MEMBER_ROLE_SHORT[memberRole(member)]}
                 </Badge>
                 {isDepositor(member) && <Badge tone="gray" style={{ marginLeft: 5 }}>{formatINR(deposits.amount)}/month</Badge>}
                 {referredLoans.length > 0 && <Badge tone="blue" style={{ marginLeft: 5 }}>Referred {referredLoans.length} loan{referredLoans.length > 1 ? "s" : ""}</Badge>}
@@ -274,11 +265,11 @@ export default function MemberDetail() {
               <thead>
                 <tr>
                   <th>Loan</th>
-                  <th>Principal</th>
+                  <th>Loan amount</th>
                   <th>Rate</th>
                   <th>Started</th>
                   <th>Status</th>
-                  <th className="num">Outstanding</th>
+                  <th className="num">Still to pay</th>
                   <th className="num">Repaid %</th>
                   <th />
                 </tr>

@@ -230,3 +230,18 @@ export const IconTree = (p) => (
     <path d="M12 7.5v4.5M5.5 16.5V12h13v4.5" />
   </svg>
 );
+
+// Speech bubble used for WhatsApp messages (not the WhatsApp logo).
+export const IconChat = (p) => (
+  <svg {...base} {...p}>
+    <path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.5L3 21l2-5.6A8.5 8.5 0 1 1 21 11.5z" />
+  </svg>
+);
+
+export const IconPrint = (p) => (
+  <svg {...base} {...p}>
+    <path d="M6 9V3h12v6" />
+    <rect x="3" y="9" width="18" height="8" rx="2" />
+    <path d="M7 14h10v7H7z" />
+  </svg>
+);
