@@ -4,7 +4,8 @@
 // WhatsApp summary the manager sends.
 // ---------------------------------------------------------------------------
 import { deriveDeposits, deriveLoan, deriveMember, financialYearBounds, financialYearOf, isDepositor } from "./calculations.js";
-import { formatINR, formatDate, todayISO, round2 } from "./format.js";
+import { formatINR, todayISO, round2 } from "./format.js";
+import { translate, dateIn, monthShortIn } from "./i18n.js";
 
 const monthName = (ym) => {
   const [y, m] = ym.split("-").map(Number);
@@ -62,25 +63,30 @@ export function memberStatement(state, member, today = todayISO()) {
   };
 }
 
-// Short WhatsApp version of the statement.
-export function statementText(s) {
+// Short WhatsApp version of the statement, in the message language.
+export function statementText(s, lang = "en") {
+  const t = (x, v) => translate(lang, x, v);
   const first = s.member.name.split(" ")[0];
-  const lines = [`Namaskar ${first},`, `Your ${s.kopriName} statement as on ${formatDate(s.today)}:`];
+  const lines = [t("Namaskar {name},", { name: first }), t("Your {kopri} statement as on {date}:", { kopri: s.kopriName, date: dateIn(lang, s.today) })];
   if (s.monthly > 0) {
-    lines.push(`• Deposited so far: ${formatINR(s.deposited)} (${formatINR(s.monthly)} a month)`);
+    lines.push(t("• Deposited so far: {amt} ({monthly} a month)", { amt: formatINR(s.deposited), monthly: formatINR(s.monthly) }));
     const unpaid = s.months.filter((m) => m.status === "late" || m.status === "due");
-    lines.push(unpaid.length ? `• Deposits unpaid: ${unpaid.map((m) => m.label).join(", ")} (${formatINR(s.depositsUnpaid)})` : "• All deposits paid up to date");
+    lines.push(
+      unpaid.length
+        ? t("• Deposits unpaid: {months} ({amt})", { months: unpaid.map((m) => monthShortIn(lang, m.month)).join(", "), amt: formatINR(s.depositsUnpaid) })
+        : t("• All deposits paid up to date")
+    );
   }
   for (const l of s.loans) {
     if (l.closed) {
-      lines.push(`• Loan of ${formatINR(l.principal)}: fully repaid`);
+      lines.push(t("• Loan of {amt}: fully repaid", { amt: formatINR(l.principal) }));
       continue;
     }
-    lines.push(`• Loan of ${formatINR(l.principal)}: ${formatINR(l.stillToPay)} still to pay (${l.emisPaid} of ${l.emis} EMIs paid)`);
-    if (l.lateAmount > 0.5) lines.push(`  Late: ${formatINR(l.lateAmount)}`);
-    if (l.next) lines.push(`  Next EMI: ${formatINR(l.next.amount)} due ${formatDate(l.next.dueDate)}`);
+    lines.push(t("• Loan of {amt}: {left} still to pay ({paid} of {n} EMIs paid)", { amt: formatINR(l.principal), left: formatINR(l.stillToPay), paid: l.emisPaid, n: l.emis }));
+    if (l.lateAmount > 0.5) lines.push(t("  Late: {amt}", { amt: formatINR(l.lateAmount) }));
+    if (l.next) lines.push(t("  Next EMI: {amt} due {date}", { amt: formatINR(l.next.amount), date: dateIn(lang, l.next.dueDate) }));
   }
-  if (s.owedNow > 0.5) lines.push(`Please pay ${formatINR(s.owedNow)} that is due now.`);
-  lines.push(`Thank you. ${s.kopriName}`);
+  if (s.owedNow > 0.5) lines.push(t("Please pay {amt} that is due now.", { amt: formatINR(s.owedNow) }));
+  lines.push(t("Thank you. {kopri}", { kopri: s.kopriName }));
   return lines.join("\n");
 }

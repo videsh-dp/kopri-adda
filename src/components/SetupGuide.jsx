@@ -11,7 +11,7 @@ import { formatINR, todayISO, uid } from "../lib/format.js";
 const STEPS = ["Your kopri", "Loans", "Members"];
 
 export default function SetupGuide({ open, onClose }) {
-  const { state, activeKopriId, renameKopri, updateRules, addMember } = useKopri();
+  const { state, activeKopriId, renameKopri, updateRules, addMember, t } = useKopri();
   const rules = state.rules;
   const [step, setStep] = useState(0);
   const initial = () => ({
@@ -89,17 +89,17 @@ export default function SetupGuide({ open, onClose }) {
     <Modal
       open={open}
       onClose={finish}
-      title="Set up your kopri"
+      title={t("Set up your kopri")}
       footer={
         <>
-          {step === 0 ? <Button onClick={finish}>Skip for now</Button> : <Button onClick={() => setStep(step - 1)}>Back</Button>}
+          {step === 0 ? <Button onClick={finish}>{t("Skip for now")}</Button> : <Button onClick={() => setStep(step - 1)}>{t("Back")}</Button>}
           {step < 2 ? (
             <Button variant="primary" onClick={saveStep} disabled={step === 0 ? !ok0 : !ok1}>
-              Next
+              {t("Next")}
             </Button>
           ) : (
             <Button variant="primary" onClick={finish}>
-              {added.length ? "Done" : "Finish, add members later"}
+              {added.length ? t("Done") : t("Finish, add members later")}
             </Button>
           )}
         </>
@@ -108,23 +108,23 @@ export default function SetupGuide({ open, onClose }) {
       <div className="wizard-steps" aria-label={`Step ${step + 1} of 3`}>
         {STEPS.map((l, i) => (
           <span key={l} className={i === step ? "on" : i < step ? "done" : ""}>
-            {i + 1}. {l}
+            {i + 1}. {t(l)}
           </span>
         ))}
       </div>
 
       {step === 0 && (
         <div className="form-grid">
-          <Field label="Kopri name" className="grow" style={{ gridColumn: "1 / -1" }}>
+          <Field label={t("Kopri name")} className="grow" style={{ gridColumn: "1 / -1" }}>
             <TextInput value={f.name} onChange={set("name")} placeholder="e.g. Mapusa Friends Kopri" />
           </Field>
-          <Field label="Monthly deposit per member (₹)" className="grow" style={{ gridColumn: "1 / -1" }} hint="You can change it for one person later">
+          <Field label={t("Monthly deposit per member (₹)")} className="grow" style={{ gridColumn: "1 / -1" }} hint={t("You can change it for one person later")}>
             <NumberInput value={f.deposit} onChange={set("deposit")} min="0" />
           </Field>
-          <Field label="Deposit due on day" hint="of each month">
+          <Field label={t("Deposit due on day")} hint={t("of each month")}>
             <NumberInput value={f.dueDay} onChange={set("dueDay")} min="1" max="28" step="1" inputMode="numeric" />
           </Field>
-          <Field label="Late after day" hint="after this day it shows red">
+          <Field label={t("Late after day")} hint={t("after this day it shows red")}>
             <NumberInput value={f.deadlineDay} onChange={set("deadlineDay")} min="1" max="28" step="1" inputMode="numeric" />
           </Field>
         </div>
@@ -132,36 +132,36 @@ export default function SetupGuide({ open, onClose }) {
 
       {step === 1 && (
         <div className="form-grid">
-          <Field label="Usual loan interest (%)">
+          <Field label={t("Usual loan interest (%)")}>
             <NumberInput value={f.rate} onChange={set("rate")} min="0" step="0.1" />
           </Field>
-          <Field label="Interest per">
+          <Field label={t("Interest per")}>
             <Choice
-              label="Interest per"
+              label={t("Interest per")}
               value={f.rateUnit}
               onChange={(v) => setF((x) => ({ ...x, rateUnit: v }))}
               options={[
-                ["monthly", "Month"],
-                ["yearly", "Year"],
+                ["monthly", t("Month")],
+                ["yearly", t("Year")],
               ]}
             />
           </Field>
-          <Field label="Days allowed after an EMI's due date" hint="Before it counts as late">
+          <Field label={t("Days allowed after an EMI's due date")} hint={t("Before it counts as late")}>
             <NumberInput value={f.grace} onChange={set("grace")} min="0" step="1" inputMode="numeric" />
           </Field>
-          <Field label="Must a member recommend every loan?">
+          <Field label={t("Must a member recommend every loan?")}>
             <Choice
-              label="Must a member recommend every loan?"
+              label={t("Must a member recommend every loan?")}
               value={f.referral}
               onChange={(v) => setF((x) => ({ ...x, referral: v }))}
               options={[
-                ["yes", "Yes"],
-                ["no", "No"],
+                ["yes", t("Yes")],
+                ["no", t("No")],
               ]}
             />
           </Field>
           <div className="small muted" style={{ gridColumn: "1 / -1" }}>
-            Late fees, profit split and the financial year can be changed any time in Settings.
+            {t("Late fees, profit split and the financial year can be changed any time in Settings.")}
           </div>
         </div>
       )}
@@ -169,10 +169,10 @@ export default function SetupGuide({ open, onClose }) {
       {step === 2 && (
         <div className="stack" style={{ gap: 12 }}>
           <div className="small muted">
-            Add each person with their mobile number (for WhatsApp). Members pay {formatINR(Number(f.deposit) || 0)} a month. You can add more details later.
+            {t("Add each person with their mobile number (for WhatsApp). Members pay {amt} a month. You can add more details later.", { amt: formatINR(Number(f.deposit) || 0) })}
           </div>
           <div className="form-grid">
-            <Field label="Name" className="grow" style={{ gridColumn: "1 / -1" }}>
+            <Field label={t("Name")} className="grow" style={{ gridColumn: "1 / -1" }}>
               <TextInput
                 value={person.name}
                 onChange={(e) => setPerson((p) => ({ ...p, name: e.target.value }))}
@@ -180,7 +180,7 @@ export default function SetupGuide({ open, onClose }) {
                 placeholder="e.g. Anita Fernandes"
               />
             </Field>
-            <Field label="Mobile number">
+            <Field label={t("Mobile number")}>
               <input
                 type="tel"
                 inputMode="tel"
@@ -190,20 +190,20 @@ export default function SetupGuide({ open, onClose }) {
                 placeholder="98220 12345"
               />
             </Field>
-            <Field label="Type">
+            <Field label={t("Type")}>
               <Choice
-                label="Type"
+                label={t("Type")}
                 value={person.role}
                 onChange={(v) => setPerson((p) => ({ ...p, role: v }))}
                 options={[
-                  [MEMBER_ROLES.DEPOSITOR, "Member"],
-                  [MEMBER_ROLES.BORROWER, "Borrower only"],
+                  [MEMBER_ROLES.DEPOSITOR, t("Member")],
+                  [MEMBER_ROLES.BORROWER, t("Borrower only")],
                 ]}
               />
             </Field>
           </div>
           <Button onClick={addPerson} disabled={!person.name.trim()} style={{ minHeight: 46 }}>
-            + Add {person.name.trim() || "this person"}
+            {t("+ Add {name}", { name: person.name.trim() || t("this person") })}
           </Button>
           {added.length > 0 && (
             <div className="card">
@@ -213,7 +213,7 @@ export default function SetupGuide({ open, onClose }) {
                   <div className="grow" style={{ fontWeight: 650 }}>
                     {p.name}
                   </div>
-                  <span className="small muted">{p.role === MEMBER_ROLES.BORROWER ? "Borrower" : "Member"}</span>
+                  <span className="small muted">{p.role === MEMBER_ROLES.BORROWER ? t("Borrower only") : t("Member")}</span>
                 </div>
               ))}
             </div>

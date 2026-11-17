@@ -16,7 +16,7 @@ const FILTERS = [
 ];
 
 export default function Loans() {
-  const { state } = useKopri();
+  const { state, t } = useKopri();
   const navigate = useNavigate();
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
@@ -49,7 +49,7 @@ export default function Loans() {
     <div>
       <div className="page-head">
         <div>
-          <div className="page-title">Loans</div>
+          <div className="page-title">{t("Loans")}</div>
           <div className="page-sub">
             {formatINR(totals.disbursed)} given · {formatINR(totals.outstanding)} still to pay ·{" "}
             {totals.overdue > 0 && <span className="amount-neg">{formatINR(totals.overdue)} late</span>}
@@ -57,7 +57,7 @@ export default function Loans() {
           </div>
         </div>
         <Button variant="primary" onClick={() => setShowAdd(true)}>
-          <IconPlus /> New loan
+          <IconPlus /> {t("New loan")}
         </Button>
       </div>
 

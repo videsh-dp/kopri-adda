@@ -118,6 +118,40 @@ try {
   const sheet = await page.evaluate(() => document.querySelector(".sheet")?.innerText || "");
   ok("More lists Manager tools with Overview", /manager tools/i.test(sheet) && sheet.includes("Overview"));
 
+  // Language: More → Language → Hindi app, Konkani messages
+  await page.evaluate(() => [...document.querySelectorAll(".sheet-row")].find((b) => b.innerText.includes("Language")).click());
+  await sleep(300);
+  await page.evaluate(() => {
+    const groups = [...document.querySelectorAll(".modal .lang-list")];
+    [...groups[0].querySelectorAll("button")].find((b) => b.innerText.includes("Hindi")).click();
+  });
+  await sleep(200);
+  await page.evaluate(() => {
+    const groups = [...document.querySelectorAll(".modal .lang-list")];
+    [...groups[1].querySelectorAll("button")].find((b) => b.innerText.includes("Konkani")).click();
+  });
+  await sleep(200);
+  await page.evaluate(() => [...document.querySelectorAll(".modal-foot button")].pop().click());
+  await sleep(300);
+  const tabsHi = await page.$$eval(".tabbar .tab-label", (els) => els.map((e) => e.innerText.trim()));
+  ok("bottom bar switches to Hindi", tabsHi.join() === "वसूली,लोग,कर्ज़,और", tabsHi.join());
+  const bodyHi = await page.evaluate(() => document.body.innerText);
+  ok("Collect screen in Hindi", bodyHi.includes("वसूल करना है") && bodyHi.includes("याद दिलाएँ"));
+  ok("page language set on <html>", (await page.evaluate(() => document.documentElement.lang)) === "hi");
+  const k0 = (await rowKeys())[0];
+  await page.click(`.collect-row[data-key="${k0}"] .btn-wa`);
+  await sleep(150);
+  const kokMsg = decodeURIComponent(await page.evaluate(() => window.__opened.pop()));
+  ok("WhatsApp reminder uses the message language (Konkani)", kokMsg.includes("नमस्कार") && kokMsg.includes("उगडास"), kokMsg);
+  await shot(page, "collect-hindi");
+  await page.evaluate(() => {
+    const root = JSON.parse(localStorage.getItem("kopri:state:v2"));
+    root.settings = { ...root.settings, lang: "en", msgLang: "en" };
+    localStorage.setItem("kopri:state:v2", JSON.stringify(root));
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  ok("back to English", (await page.evaluate(() => document.body.innerText)).includes("To collect"));
+
   // Member statement: printable page + WhatsApp summary
   await page.goto(`${BASE}/members/m6/statement`, { waitUntil: "networkidle0" });
   await sleep(300);

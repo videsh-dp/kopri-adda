@@ -9,7 +9,7 @@ import { MemberFormModal } from "../components/modals.jsx";
 import { IconPlus, IconSearch } from "../components/Icons.jsx";
 
 export default function Members() {
-  const { state } = useKopri();
+  const { state, t } = useKopri();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [showAdd, setShowAdd] = useState(null); // role for the add form
@@ -38,7 +38,7 @@ export default function Members() {
     <div>
       <div className="page-head">
         <div>
-          <div className="page-title">People</div>
+          <div className="page-title">{t("People")}</div>
           <div className="page-sub">
             {depositorCount} members · {borrowerOnly} borrower{borrowerOnly === 1 ? "" : "s"} only · {formatINR(totalCapital)} deposited ·{" "}
             {formatINR(totalOutstanding)} still to pay on loans
@@ -46,10 +46,10 @@ export default function Members() {
         </div>
         <div className="row">
           <Button onClick={() => setShowAdd(MEMBER_ROLES.BORROWER)}>
-            <IconPlus /> Add borrower
+            <IconPlus /> {t("Add borrower")}
           </Button>
           <Button variant="primary" onClick={() => setShowAdd(MEMBER_ROLES.DEPOSITOR)}>
-            <IconPlus /> Add member
+            <IconPlus /> {t("Add member")}
           </Button>
         </div>
       </div>

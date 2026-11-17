@@ -4,6 +4,7 @@ import { collectionList, paymentEvents, waPhone, whatsappLink, receiptText, remi
 import { deriveDeposits, deriveLoan } from "../src/lib/calculations.js";
 import { DEFAULT_RULES } from "../src/lib/constants.js";
 import { memberStatement, statementText } from "../src/lib/statement.js";
+import { translate, checkPlaceholders, LANGUAGES, TRANSLATED_KEYS } from "../src/lib/i18n.js";
 
 let failures = 0;
 const ok = (name, cond, detail = "") => {
@@ -89,6 +90,20 @@ ok("statement: Carol's loan shows paid back and still to pay", stC.loans.length 
 ok("statement: next EMI is EMI 3", stC.loans[0].next?.index === 2);
 const txt = statementText(stC);
 ok("statement text lists loan and next EMI", txt.includes("₹10,000 still to pay") && txt.includes("Next EMI"), txt);
+
+// Languages
+ok("every translation keeps its {placeholders}", checkPlaceholders().length === 0, checkPlaceholders().join(" | "));
+ok("four languages offered", LANGUAGES.map((l) => l.code).join() === "en,kok,mr,hi");
+ok("missing translation falls back to English", translate("hi", "Some text nobody translated") === "Some text nobody translated");
+ok("placeholders filled in", translate("hi", "Paid {amt}", { amt: "₹500" }) === "भरे ₹500");
+const allTranslated = TRANSLATED_KEYS.every((k) => ["kok", "mr", "hi"].every((l) => translate(l, k) !== k || /^[^A-Za-z]*$/.test(k)));
+ok("every listed line has Konkani, Marathi and Hindi", allTranslated);
+const rHi = receiptText({ kopriName: "Test Kopri", item: emi, amount: emi.amount, date: today, lang: "hi" });
+ok("Hindi receipt", rHi.startsWith("नमस्ते Carol,") && rHi.includes("₹1,290") && rHi.includes("धन्यवाद"), rHi);
+const remKok = reminderText({ kopriName: "Test Kopri", item: dep, today, lang: "kok" });
+ok("Konkani reminder", remKok.startsWith("नमस्कार Asha,") && remKok.includes("₹1,100"), remKok);
+const stMr = statementText(stC, "mr");
+ok("Marathi statement", stMr.includes("हिशोब") && stMr.includes("₹10,000"), stMr);
 
 console.log(failures ? `\n${failures} COLLECT TEST(S) FAILED` : "\nALL COLLECT TESTS PASSED");
 process.exit(failures ? 1 : 0);

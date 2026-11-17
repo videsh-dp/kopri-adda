@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { loadState, saveState, clearState, subscribeToStorageChanges, getDataHash } from "../lib/storage.js";
 import { rootReducer, seedRoot, activeBook, dataHash } from "./kopriStore.js";
+import { translate } from "../lib/i18n.js";
 
 const KopriContext = createContext(null);
 
@@ -56,6 +57,10 @@ export function KopriProvider({ children }) {
     document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute("content", theme === "dark" ? "black" : "default");
   }, [root.settings?.theme]);
 
+  useEffect(() => {
+    document.documentElement.lang = root.settings?.lang || "en";
+  }, [root.settings?.lang]);
+
   // Kopri list for the switcher UI
   const kopris = useMemo(
     () =>
@@ -109,11 +114,23 @@ export function KopriProvider({ children }) {
       saveYearEnd: (yearEnd) => dispatch({ type: "SAVE_YEAR_END", yearEnd }),
       settleYearEnd: (year, date) => dispatch({ type: "SETTLE_YEAR_END", year, date }),
       setTheme: (theme) => dispatch({ type: "SET_THEME", theme }),
+      setSettings: (patch) => dispatch({ type: "SET_SETTINGS", patch }),
+
+      // --- Language: app screens and WhatsApp messages can differ ---
+      lang: root.settings?.lang || "en",
+      msgLang: root.settings?.msgLang || root.settings?.lang || "en",
+      t: (text, vars) => translate(root.settings?.lang || "en", text, vars),
     }),
     [state, root, kopris]
   );
 
   return <KopriContext.Provider value={value}>{children}</KopriContext.Provider>;
+}
+
+// Translator for the current app language: t("Paid {amt}", { amt })
+export function useT() {
+  const ctx = useContext(KopriContext);
+  return ctx?.t || ((text, vars) => translate("en", text, vars));
 }
 
 export function useKopri() {

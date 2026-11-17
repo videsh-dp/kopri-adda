@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { collectionList, paymentEvents, whatsappLink, receiptText, reminderText } from "../lib/collect.js";
-import { formatINR, formatDate, todayISO, round2 } from "../lib/format.js";
+import { formatINR, todayISO, round2 } from "../lib/format.js";
 import { Avatar, Button, Modal, toast } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
 import SetupGuide from "../components/SetupGuide.jsx";
 import { IconCheck, IconChat, IconMore, IconSearch, IconPlus } from "../components/Icons.jsx";
 import { EVENT_TYPES } from "../lib/constants.js";
+import { monthShortIn, monthLongIn, dateIn } from "../lib/i18n.js";
 
 const ACCOUNT_KEY = "kopri.collectAccount";
 const readAccount = () => {
@@ -27,11 +28,18 @@ export function StatusPill({ status, children }) {
   return <span className={`status-pill ${status}`}>{children}</span>;
 }
 
-function whenText(item, today) {
-  if (item.status === "paid") return "Paid";
-  if (item.status === "late") return item.daysLate > 0 ? `Late · ${item.daysLate} day${item.daysLate === 1 ? "" : "s"}` : "Late";
-  if (item.dueDate > today) return `Due ${formatDate(item.dueDate).slice(0, -5)}`;
-  return "Due now";
+function whenText(item, today, t, lang) {
+  if (item.status === "paid") return t("Paid");
+  if (item.status === "late") return item.daysLate > 1 ? t("Late · {n} days", { n: item.daysLate }) : item.daysLate === 1 ? t("Late · 1 day") : t("Late");
+  if (item.dueDate > today) return t("Due {date}", { date: dateIn(lang, item.dueDate, false) });
+  return t("Due now");
+}
+
+// The row's name in the app language: "Nov deposit", "EMI 3 of 12"…
+export function itemTitle(item, t, lang) {
+  if (item.kind === "emi") return t("EMI {i} of {n}", { i: item.installment.index + 1, n: item.loan.installments.length });
+  if (item.kind === "deposit_fee") return t("Late fee, {month} deposit", { month: monthShortIn(lang, item.month) });
+  return t("{month} deposit", { month: monthShortIn(lang, item.month) });
 }
 
 function openWhatsApp(phone, text) {
@@ -39,7 +47,7 @@ function openWhatsApp(phone, text) {
 }
 
 export default function Collect() {
-  const { state, addEvent, deleteEvent } = useKopri();
+  const { state, addEvent, deleteEvent, t, lang, msgLang } = useKopri();
   const today = todayISO();
   const kopriName = state.name || state.rules.kopriName || "Kopri";
   const [account, setAccountState] = useState(readAccount);
@@ -77,10 +85,10 @@ export default function Collect() {
     const events = paymentEvents(item, { date: today, account });
     events.forEach((e) => addEvent(e));
     const name = item.member.name.split(" ")[0];
-    toast(`${formatINR(item.amount)} from ${name} recorded`, {
+    toast(t("{amt} from {name} recorded", { amt: formatINR(item.amount), name }), {
       actions: [
-        { label: "Undo", onClick: () => events.forEach((e) => deleteEvent(e.id)) },
-        { label: "Send receipt", onClick: () => openWhatsApp(item.member.phone, receiptText({ kopriName, item, amount: item.amount, date: today })) },
+        { label: t("Undo"), onClick: () => events.forEach((e) => deleteEvent(e.id)) },
+        { label: t("Send receipt"), onClick: () => openWhatsApp(item.member.phone, receiptText({ kopriName, item, amount: item.amount, date: today, lang: msgLang })) },
       ],
     });
   };
@@ -129,29 +137,29 @@ export default function Collect() {
       <div className="collect-head">
         <div className="page-head" style={{ marginBottom: 0 }}>
           <div>
-            <div className="page-title">To collect · {monthLong(list.month)}</div>
-            <div className="page-sub">Tap the green button when someone pays. You can undo it straight away.</div>
+            <div className="page-title">{t("To collect")} · {monthLongIn(lang, list.month)}</div>
+            <div className="page-sub">{t("Tap the green button when someone pays. You can undo it straight away.")}</div>
           </div>
           <Button onClick={() => setShowOther(true)}>
-            <IconPlus /> Record other money
+            <IconPlus /> {t("Record other money")}
           </Button>
         </div>
 
         <div className="collect-summary">
           <div className="collect-sum">
-            <div className="collect-sum-label">Still to collect</div>
+            <div className="collect-sum-label">{t("Still to collect")}</div>
             <div className="collect-sum-value">{formatINR(list.totals.toCollect)}</div>
-            <div className="small faint">{list.toCollect.length} payment{list.toCollect.length === 1 ? "" : "s"}</div>
+            <div className="small faint">{t("{n} payments", { n: list.toCollect.length })}</div>
           </div>
           <div className="collect-sum late">
-            <div className="collect-sum-label">Late</div>
+            <div className="collect-sum-label">{t("Late")}</div>
             <div className="collect-sum-value">{formatINR(list.totals.late)}</div>
-            <div className="small faint">{list.totals.lateCount} payment{list.totals.lateCount === 1 ? "" : "s"}</div>
+            <div className="small faint">{t("{n} payments", { n: list.totals.lateCount })}</div>
           </div>
           <div className="collect-sum paid">
-            <div className="collect-sum-label">Collected this month</div>
+            <div className="collect-sum-label">{t("Collected this month")}</div>
             <div className="collect-sum-value">{formatINR(list.totals.collected)}</div>
-            <div className="small faint">{list.paid.length} paid</div>
+            <div className="small faint">{t("{n} paid", { n: list.paid.length })}</div>
           </div>
         </div>
 
@@ -162,8 +170,8 @@ export default function Collect() {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find a name"
-              aria-label="Find a name"
+              placeholder={t("Find a name")}
+              aria-label={t("Find a name")}
               style={{ paddingLeft: 36, width: "100%" }}
             />
           </label>
@@ -174,19 +182,19 @@ export default function Collect() {
               ["emi", "Loan EMIs"],
             ].map(([k, l]) => (
               <button key={k} className={kind === k ? "on" : ""} onClick={() => setKind(k)} aria-pressed={kind === k}>
-                {l}
+                {t(l)}
               </button>
             ))}
           </div>
           <div className="row" style={{ gap: 8 }}>
-            <span className="small muted">Money received in</span>
+            <span className="small muted">{t("Money received in")}</span>
             <div className="seg" role="group" aria-label="Money received in">
               {[
                 ["cash", "Cash"],
                 ["bank", "Bank / UPI"],
               ].map(([k, l]) => (
                 <button key={k} className={account === k ? "on" : ""} onClick={() => setAccount(k)} aria-pressed={account === k}>
-                  {l}
+                  {t(l)}
                 </button>
               ))}
             </div>
@@ -196,14 +204,14 @@ export default function Collect() {
 
       {!hasPeople ? (
         <div className="collect-done" style={{ background: "var(--primary-soft)", color: "var(--primary-text)" }}>
-          <div style={{ marginBottom: 10 }}>No members yet. Set up your kopri in 3 short steps.</div>
+          <div style={{ marginBottom: 10 }}>{t("No members yet. Set up your kopri in 3 short steps.")}</div>
           <Button variant="primary" onClick={() => setShowSetup(true)}>
-            Start setup
+            {t("Start setup")}
           </Button>
         </div>
       ) : rows.length === 0 ? (
         <div className="collect-done">
-          {q || kind !== "all" ? "Nothing to collect for this filter." : "Everyone has paid for this month. 🎉"}
+          {q || kind !== "all" ? t("Nothing to collect for this filter.") : t("Everyone has paid for this month. 🎉")}
         </div>
       ) : (
         <div className="collect-list">
@@ -216,27 +224,27 @@ export default function Collect() {
                     <Link to={item.kind === "emi" ? `/loans/${item.loan.id}` : `/members/${item.member.id}`}>{item.member.name}</Link>
                   </div>
                   <div className="collect-row-what">
-                    {item.title} · <StatusPill status={item.status}>{whenText(item, today)}</StatusPill>
+                    {itemTitle(item, t, lang)} · <StatusPill status={item.status}>{whenText(item, today, t, lang)}</StatusPill>
                   </div>
                 </div>
                 <div className="collect-row-amt">
                   {formatINR(item.amount)}
-                  {item.lateFee > 0.005 && item.base > 0 && <span className="small">incl. {formatINR(item.lateFee)} late fee</span>}
+                  {item.lateFee > 0.005 && item.base > 0 && <span className="small">{t("incl. {amt} late fee", { amt: formatINR(item.lateFee) })}</span>}
                 </div>
               </div>
               <div className="collect-row-actions">
                 <Button className="btn-paid" onClick={() => markPaid(item)}>
-                  <IconCheck width={20} height={20} /> Paid {formatINR(item.amount)}
+                  <IconCheck width={20} height={20} /> {t("Paid {amt}", { amt: formatINR(item.amount) })}
                 </Button>
                 <Button
                   className="btn-wa"
-                  onClick={() => openWhatsApp(item.member.phone, reminderText({ kopriName, item, today }))}
+                  onClick={() => openWhatsApp(item.member.phone, reminderText({ kopriName, item, today, lang: msgLang }))}
                   aria-label={`Send ${item.member.name} a WhatsApp reminder`}
                   title="Send a WhatsApp reminder"
                 >
-                  <IconChat width={18} height={18} /> Remind
+                  <IconChat width={18} height={18} /> {t("Remind")}
                 </Button>
-                <Button className="btn-more" onClick={() => setMenuFor(item)} aria-label="More choices">
+                <Button className="btn-more" onClick={() => setMenuFor(item)} aria-label={t("More choices")}>
                   <IconMore width={20} height={20} />
                 </Button>
               </div>
@@ -248,7 +256,7 @@ export default function Collect() {
       {paidRows.length > 0 && (
         <>
           <div className="collect-section-title">
-            <StatusPill status="paid">Paid this month</StatusPill>
+            <StatusPill status="paid">{t("Paid this month")}</StatusPill>
             <span className="small faint">{paidRows.length}</span>
           </div>
           <div className="card">
@@ -257,17 +265,17 @@ export default function Collect() {
                 <Avatar name={item.member.name} id={item.member.id} />
                 <div className="grow" style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 650 }}>{item.member.name}</div>
-                  <div className="small muted">{item.title}</div>
+                  <div className="small muted">{itemTitle(item, t, lang)}</div>
                 </div>
                 <div className="num" style={{ fontWeight: 700, color: "var(--green)" }}>{formatINR(item.amount)}</div>
                 <Button
                   size="sm"
                   className="btn-wa"
                   style={{ minHeight: 38 }}
-                  onClick={() => openWhatsApp(item.member.phone, receiptText({ kopriName, item, amount: item.amount, date: item.paidDate || today }))}
+                  onClick={() => openWhatsApp(item.member.phone, receiptText({ kopriName, item, amount: item.amount, date: item.paidDate || today, lang: msgLang }))}
                   title="Send a WhatsApp receipt"
                 >
-                  <IconChat width={16} height={16} /> Receipt
+                  <IconChat width={16} height={16} /> {t("Receipt")}
                 </Button>
               </div>
             ))}
@@ -275,35 +283,35 @@ export default function Collect() {
         </>
       )}
 
-      <Modal open={!!menuFor} onClose={() => setMenuFor(null)} title={menuFor ? `${menuFor.member.name} · ${menuFor.title}` : ""}>
+      <Modal open={!!menuFor} onClose={() => setMenuFor(null)} title={menuFor ? `${menuFor.member.name} · ${itemTitle(menuFor, t, lang)}` : ""}>
         {menuFor && (
           <div className="menu-list">
             <button onClick={() => openOtherAmount(menuFor)}>
               <span>
-                Paid a different amount or on another date
-                <span className="small muted">Part payment, interest only, or an earlier date</span>
+                {t("Paid a different amount or on another date")}
+                <span className="small muted">{t("Part payment, interest only, or an earlier date")}</span>
               </span>
             </button>
             <button
               onClick={() => {
-                openWhatsApp(menuFor.member.phone, reminderText({ kopriName, item: menuFor, today }));
+                openWhatsApp(menuFor.member.phone, reminderText({ kopriName, item: menuFor, today, lang: msgLang }));
                 setMenuFor(null);
               }}
             >
               <span>
-                Send WhatsApp reminder
-                <span className="small muted">{menuFor.member.phone ? `To ${menuFor.member.phone}` : "No phone saved, you pick the contact"}</span>
+                {t("Send WhatsApp reminder")}
+                <span className="small muted">{menuFor.member.phone ? t("To {phone}", { phone: menuFor.member.phone }) : t("No phone saved, you pick the contact")}</span>
               </span>
             </button>
             <Link to={`/members/${menuFor.member.id}/statement`} onClick={() => setMenuFor(null)}>
-              Statement to print or send
+              {t("Statement to print or send")}
             </Link>
             <Link to={`/members/${menuFor.member.id}`} onClick={() => setMenuFor(null)}>
-              Open {menuFor.member.name.split(" ")[0]}'s page
+              {t("Open {name}'s page", { name: menuFor.member.name.split(" ")[0] })}
             </Link>
             {menuFor.kind === "emi" && (
               <Link to={`/loans/${menuFor.loan.id}`} onClick={() => setMenuFor(null)}>
-                Open the loan
+                {t("Open the loan")}
               </Link>
             )}
           </div>

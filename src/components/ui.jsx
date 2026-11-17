@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconClose } from "./Icons.jsx";
 import { avatarColor, initials } from "../lib/format.js";
+import { useT } from "../state/KopriContext.jsx";
 
 // ---------------------------------------------------------------- Card
 export function Card({ title, sub, actions, children, pad = true, className = "" }) {
@@ -56,19 +57,20 @@ export function Badge({ tone = "gray", dot = false, children, style }) {
 
 // One colour code everywhere: green = paid / fine, orange = due, red = late.
 export function StatusBadge({ status }) {
+  const t = useT();
   const map = {
-    active: <Badge tone="green" dot>Active</Badge>,
-    inactive: <Badge tone="gray">Inactive</Badge>,
-    draft: <Badge tone="gray">Draft</Badge>,
-    overdue: <Badge tone="red" dot>Late</Badge>,
-    completed: <Badge tone="green" dot>Closed</Badge>,
-    defaulted: <Badge tone="red" dot>Not paying</Badge>,
-    paid: <Badge tone="green" dot>Paid</Badge>,
-    due: <Badge tone="amber" dot>Due</Badge>,
-    paid_late: <Badge tone="green" dot>Paid late</Badge>,
-    late: <Badge tone="red" dot>Late</Badge>,
-    upcoming: <Badge tone="gray">Not due yet</Badge>,
-    written_off: <Badge tone="gray">Can't recover</Badge>,
+    active: <Badge tone="green" dot>{t("Active")}</Badge>,
+    inactive: <Badge tone="gray">{t("Inactive")}</Badge>,
+    draft: <Badge tone="gray">{t("Draft")}</Badge>,
+    overdue: <Badge tone="red" dot>{t("Late")}</Badge>,
+    completed: <Badge tone="green" dot>{t("Closed")}</Badge>,
+    defaulted: <Badge tone="red" dot>{t("Not paying")}</Badge>,
+    paid: <Badge tone="green" dot>{t("Paid")}</Badge>,
+    due: <Badge tone="amber" dot>{t("Due")}</Badge>,
+    paid_late: <Badge tone="green" dot>{t("Paid late")}</Badge>,
+    late: <Badge tone="red" dot>{t("Late")}</Badge>,
+    upcoming: <Badge tone="gray">{t("Not due yet")}</Badge>,
+    written_off: <Badge tone="gray">{t("Can't recover")}</Badge>,
   };
   return map[status] || <Badge tone="gray">{status}</Badge>;
 }

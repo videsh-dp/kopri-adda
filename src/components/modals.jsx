@@ -258,7 +258,7 @@ function blankMember(rules, role) {
 }
 
 export function MemberFormModal({ open, onClose, editMember = null, defaultRole = MEMBER_ROLES.DEPOSITOR, onCreated }) {
-  const { state, addMember, updateMember } = useKopri();
+  const { state, addMember, updateMember, t } = useKopri();
   const makeForm = () =>
     editMember
       ? {
@@ -303,7 +303,7 @@ export function MemberFormModal({ open, onClose, editMember = null, defaultRole 
     onClose();
   };
 
-  const title = editMember ? "Edit details" : form.role === MEMBER_ROLES.BORROWER ? "Add borrower" : "Add member";
+  const title = editMember ? "Edit details" : form.role === MEMBER_ROLES.BORROWER ? t("Add borrower") : t("Add member");
 
   return (
     <Modal
@@ -313,34 +313,39 @@ export function MemberFormModal({ open, onClose, editMember = null, defaultRole 
       wide
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t("Cancel")}</Button>
           <Button variant="primary" onClick={submit} disabled={!valid}>
-            {editMember ? "Save" : form.role === MEMBER_ROLES.BORROWER ? "Add borrower" : "Add member"}
+            {editMember ? t("Save") : form.role === MEMBER_ROLES.BORROWER ? t("Add borrower") : t("Add member")}
           </Button>
         </>
       }
     >
       <div className="form-grid">
-        <Field label="Full name" className="grow" style={{ gridColumn: "1 / -1" }}>
+        <Field label={t("Full name")} className="grow" style={{ gridColumn: "1 / -1" }}>
           <TextInput value={form.name} onChange={set("name")} placeholder="e.g. Anita Fernandes" autoFocus />
         </Field>
-        <Field label="Type" className="grow" style={{ gridColumn: "1 / -1" }} hint={deposits ? "Pays a monthly deposit and gets a share of the profit" : "Only takes loans. A member must recommend them."}>
+        <Field
+          label={t("Type")}
+          className="grow"
+          style={{ gridColumn: "1 / -1" }}
+          hint={deposits ? t("Pays a monthly deposit and gets a share of the profit") : t("Only takes loans. A member must recommend them.")}
+        >
           <Choice
-            label="Type"
+            label={t("Type")}
             value={form.role}
             onChange={(v) => setForm((f) => ({ ...f, role: v }))}
             options={[
-              [MEMBER_ROLES.DEPOSITOR, "Member"],
-              [MEMBER_ROLES.BOTH, "Member + borrower"],
-              [MEMBER_ROLES.BORROWER, "Borrower only"],
+              [MEMBER_ROLES.DEPOSITOR, t("Member")],
+              [MEMBER_ROLES.BOTH, t("Member + borrower")],
+              [MEMBER_ROLES.BORROWER, t("Borrower only")],
             ]}
           />
         </Field>
-        <Field label="Mobile number" hint="Used for WhatsApp reminders and receipts">
+        <Field label={t("Mobile number")} hint={t("Used for WhatsApp reminders and receipts")}>
           <input type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={set("phone")} placeholder="98220 12345" />
         </Field>
         {deposits && (
-          <Field label="Monthly deposit (₹)" hint={`Due on day ${state.rules.depositDueDay}, late after day ${state.rules.depositDeadlineDay}`}>
+          <Field label={t("Monthly deposit (₹)")} hint={`Due on day ${state.rules.depositDueDay}, late after day ${state.rules.depositDeadlineDay}`}>
             <NumberInput value={form.monthlyDeposit} onChange={set("monthlyDeposit")} min="0" />
           </Field>
         )}
@@ -359,7 +364,7 @@ export function MemberFormModal({ open, onClose, editMember = null, defaultRole 
         )}
 
         <details className="more-options">
-          <summary>More details (optional)</summary>
+          <summary>{t("More details (optional)")}</summary>
           <div className="form-grid">
             {deposits && (
               <Field label="Deposits start from" hint="First month a deposit is due">
@@ -403,7 +408,7 @@ export function MemberFormModal({ open, onClose, editMember = null, defaultRole 
 
 // -------------------------------------------------------------- LoanForm
 export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId = "" }) {
-  const { state, addLoan, updateLoan } = useKopri();
+  const { state, addLoan, updateLoan, t } = useKopri();
   const rules = state.rules;
   const [form, setForm] = useState(() =>
     editLoan
@@ -531,21 +536,21 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
     <Modal
       open={open}
       onClose={onClose}
-      title={editLoan ? "Edit loan" : "New loan"}
+      title={editLoan ? "Edit loan" : t("New loan")}
       wide
       footer={
         wizard && step < 2 ? (
           <>
-            {step === 0 ? <Button onClick={onClose}>Cancel</Button> : <Button onClick={() => setStep(step - 1)}>Back</Button>}
+            {step === 0 ? <Button onClick={onClose}>{t("Cancel")}</Button> : <Button onClick={() => setStep(step - 1)}>{t("Back")}</Button>}
             <Button variant="primary" onClick={() => setStep(step + 1)} disabled={!stepOk[step]}>
-              Next
+              {t("Next")}
             </Button>
           </>
         ) : (
           <>
-            {wizard ? <Button onClick={() => setStep(1)}>Back</Button> : <Button onClick={onClose}>Cancel</Button>}
+            {wizard ? <Button onClick={() => setStep(1)}>{t("Back")}</Button> : <Button onClick={onClose}>{t("Cancel")}</Button>}
             <Button variant="primary" onClick={submit} disabled={!valid}>
-              {editLoan ? "Save changes" : "Give loan"}
+              {editLoan ? "Save changes" : t("Give loan")}
             </Button>
           </>
         )
@@ -555,13 +560,13 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
         <div className="wizard-steps" aria-label={`Step ${step + 1} of 3`}>
           {["Who", "How much", "Check"].map((l, i) => (
             <span key={l} className={i === step ? "on" : i < step ? "done" : ""}>
-              {i + 1}. {l}
+              {i + 1}. {t(l)}
             </span>
           ))}
         </div>
       )}
       <div className="form-grid" style={vis(0)}>
-        <Field label="Who takes the loan?" className="grow">
+        <Field label={t("Who takes the loan?")} className="grow">
           <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
             <select value={form.memberId} onChange={set("memberId")} style={{ flex: 1, minWidth: 0 }}>
               <option value="">Choose who takes the loan…</option>
@@ -595,29 +600,29 @@ export function LoanFormModal({ open, onClose, editLoan = null, presetMemberId =
         </Field>
       </div>
       <div className="form-grid" style={vis(1)}>
-        <Field label="Loan amount (₹)">
+        <Field label={t("Loan amount (₹)")}>
           <NumberInput value={form.principal} onChange={set("principal")} min="0" />
         </Field>
-        <Field label="Number of months">
+        <Field label={t("Number of months")}>
           <NumberInput value={form.tenureMonths} onChange={set("tenureMonths")} min="1" />
         </Field>
 
-        <Field label="Interest (%)">
+        <Field label={t("Interest (%)")}>
           <NumberInput value={form.rate} onChange={set("rate")} min="0" step="0.1" />
         </Field>
-        <Field label="Interest per">
+        <Field label={t("Interest per")}>
           <Choice
-            label="Interest per"
+            label={t("Interest per")}
             value={form.rateUnit}
             onChange={(v) => setForm((f) => ({ ...f, rateUnit: v }))}
             options={[
-              ["monthly", "Month"],
-              ["yearly", "Year"],
+              ["monthly", t("Month")],
+              ["yearly", t("Year")],
             ]}
           />
         </Field>
 
-        <Field label="Loan given on">
+        <Field label={t("Loan given on")}>
           <input type="date" value={form.startDate} onChange={set("startDate")} />
         </Field>
       </div>
@@ -772,7 +777,7 @@ const monthName = (ym) => {
 };
 
 export function EventFormModal({ open, onClose, preset = {}, editEvent = null, onDelete = null }) {
-  const { state, addEvent, updateEvent } = useKopri();
+  const { state, addEvent, updateEvent, t } = useKopri();
 
   function makeForm() {
     if (editEvent) {
@@ -979,12 +984,12 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
         editEvent
           ? "Edit entry"
           : isQuickPay
-            ? "Record EMI payment"
+            ? t("Record EMI payment")
             : isDepositFee
               ? `Deposit late fee · ${monthName(form.depositMonth)}`
               : isContribution && preset.depositMonth
                 ? `Deposit · ${monthName(preset.depositMonth)}`
-                : "Record money in or out"
+                : t("Record money in or out")
       }
       footer={
         <>
@@ -997,15 +1002,15 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
               Delete
             </Button>
           )}
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t("Cancel")}</Button>
           <Button variant="primary" onClick={submit} disabled={!valid}>
-            {editEvent ? "Save changes" : isQuickPay ? "Save payment" : "Save"}
+            {editEvent ? "Save changes" : isQuickPay ? t("Save payment") : t("Save")}
           </Button>
         </>
       }
     >
       <div className="form-grid">
-        <Field label={isQuickPay ? "What did they pay?" : "What is it?"} className="grow" style={{ gridColumn: "1 / -1" }}>
+        <Field label={isQuickPay ? t("What did they pay?") : "What is it?"} className="grow" style={{ gridColumn: "1 / -1" }}>
           {isQuickPay ? (
             <>
               <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -1024,7 +1029,7 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
                       setForm((f) => ({ ...f, amount: String(round2(Math.max(m.amount, 0))) }));
                     }}
                   >
-                    {m.label}
+                    {t(m.label)}
                   </Button>
                 ))}
               </div>
@@ -1061,10 +1066,10 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
             </select>
           )}
         </Field>
-        <Field label="Date">
+        <Field label={t("Date")}>
           <input type="date" value={form.date} onChange={set("date")} />
         </Field>
-        <Field label="Amount (₹)">
+        <Field label={t("Amount (₹)")}>
           <NumberInput value={form.amount} onChange={set("amount")} min="0" placeholder="0" />
         </Field>
 
@@ -1093,14 +1098,14 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
             </Field>
           </>
         ) : (
-          <Field label="Cash or bank">
+          <Field label={t("Cash or bank")}>
             <Choice
-              label="Cash or bank"
+              label={t("Cash or bank")}
               value={form.account}
               onChange={(v) => setForm((f) => ({ ...f, account: v }))}
               options={[
-                [ACCOUNTS.CASH, "Cash"],
-                [ACCOUNTS.BANK, "Bank / UPI"],
+                [ACCOUNTS.CASH, t("Cash")],
+                [ACCOUNTS.BANK, t("Bank / UPI")],
               ]}
             />
           </Field>
@@ -1154,7 +1159,7 @@ export function EventFormModal({ open, onClose, preset = {}, editEvent = null, o
           </Field>
         )}
 
-        <Field label="Note (optional)" className="grow" style={{ gridColumn: "1 / -1" }}>
+        <Field label={t("Note (optional)")} className="grow" style={{ gridColumn: "1 / -1" }}>
           <TextInput value={form.description} onChange={set("description")} placeholder="e.g. paid by son, UPI ref 1234" />
         </Field>
       </div>

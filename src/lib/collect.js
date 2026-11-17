@@ -5,7 +5,8 @@
 // ---------------------------------------------------------------------------
 import { EVENT_TYPES } from "./constants.js";
 import { deriveDeposits, deriveLoan, isDepositor, splitPayAmount } from "./calculations.js";
-import { formatINR, formatDate, daysBetween, todayISO, round2, uid } from "./format.js";
+import { formatINR, daysBetween, todayISO, round2, uid } from "./format.js";
+import { translate, monthLongIn, dateIn } from "./i18n.js";
 
 const COLLECTED_TYPES = [EVENT_TYPES.CONTRIBUTION, EVENT_TYPES.PRINCIPAL_PAYMENT, EVENT_TYPES.INTEREST_PAYMENT, EVENT_TYPES.LATE_FEE];
 
@@ -231,37 +232,41 @@ export function whatsappLink(phone, text) {
 
 const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "";
 
-export function receiptText({ kopriName, item, amount, date = todayISO() }) {
-  const what =
-    item.kind === "emi"
-      ? `${item.title} for your loan`
-      : item.kind === "deposit_fee"
-        ? item.title.toLowerCase()
-        : `monthly deposit for ${monthLong(item.month)}`;
+// What a row is, in words, for messages ("monthly deposit for November 2026").
+function whatText(item, lang) {
+  const t = (x, v) => translate(lang, x, v);
+  if (item.kind === "emi") return t("{emi} for your loan", { emi: t("EMI {i} of {n}", { i: item.installment.index + 1, n: item.loan.installments.length }) });
+  if (item.kind === "deposit_fee") return t("late fee on the {month} deposit", { month: monthLongIn(lang, item.month) });
+  return t("monthly deposit for {month}", { month: monthLongIn(lang, item.month) });
+}
+
+export function receiptText({ kopriName, item, amount, date = todayISO(), lang = "en" }) {
+  const t = (x, v) => translate(lang, x, v);
   const lines = [
-    `Namaskar ${firstName(item.member.name)},`,
-    `Received ${formatINR(amount)} on ${formatDate(date)} towards your ${what}.`,
+    t("Namaskar {name},", { name: firstName(item.member.name) }),
+    t("Received {amt} on {date} towards your {what}.", { amt: formatINR(amount), date: dateIn(lang, date), what: whatText(item, lang) }),
   ];
   if (item.kind === "emi" && item.loan) {
     const left = Math.max(0, round2(item.loan.outstandingPrincipal - (item.principal || 0)));
-    if (left > 0.5) lines.push(`Loan amount still to pay: ${formatINR(left)}.`);
-    else lines.push("Your loan is now fully repaid.");
+    lines.push(left > 0.5 ? t("Loan amount still to pay: {amt}.", { amt: formatINR(left) }) : t("Your loan is now fully repaid."));
   }
-  lines.push(`Thank you. ${kopriName}`);
+  lines.push(t("Thank you. {kopri}", { kopri: kopriName }));
   return lines.join("\n");
 }
 
-export function reminderText({ kopriName, item, today = todayISO() }) {
-  const what = item.kind === "emi" ? `${item.title} for your loan` : item.kind === "deposit_fee" ? item.title.toLowerCase() : `monthly deposit for ${monthLong(item.month)}`;
+export function reminderText({ kopriName, item, today = todayISO(), lang = "en" }) {
+  const t = (x, v) => translate(lang, x, v);
   const when =
     item.status === "late"
-      ? `was due on ${formatDate(item.kind === "emi" ? item.dueDate : item.deadline || item.dueDate)}`
+      ? t("was due on {date}", { date: dateIn(lang, item.kind === "emi" ? item.dueDate : item.deadline || item.dueDate) })
       : item.dueDate > today
-        ? `is due on ${formatDate(item.dueDate)}`
-        : `is due now${item.deadline ? ` (please pay by ${formatDate(item.deadline)})` : ""}`;
+        ? t("is due on {date}", { date: dateIn(lang, item.dueDate) })
+        : item.deadline
+          ? t("is due now (please pay by {date})", { date: dateIn(lang, item.deadline) })
+          : t("is due now");
   return [
-    `Namaskar ${firstName(item.member.name)},`,
-    `A friendly reminder: your ${what} of ${formatINR(item.amount)} ${when}.`,
-    `Thank you. ${kopriName}`,
+    t("Namaskar {name},", { name: firstName(item.member.name) }),
+    t("A friendly reminder: your {what} of {amt} {when}.", { what: whatText(item, lang), amt: formatINR(item.amount), when }),
+    t("Thank you. {kopri}", { kopri: kopriName }),
   ].join("\n");
 }
