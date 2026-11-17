@@ -3,6 +3,7 @@
 import { collectionList, paymentEvents, waPhone, whatsappLink, receiptText, reminderText } from "../src/lib/collect.js";
 import { deriveDeposits, deriveLoan } from "../src/lib/calculations.js";
 import { DEFAULT_RULES } from "../src/lib/constants.js";
+import { memberStatement, statementText } from "../src/lib/statement.js";
 
 let failures = 0;
 const ok = (name, cond, detail = "") => {
@@ -79,6 +80,15 @@ const r = receiptText({ kopriName: "Test Kopri", item: emi, amount: emi.amount, 
 ok("receipt names member and amount", r.includes("Namaskar Carol") && r.includes("₹1,290") && r.includes("Test Kopri"), r);
 const rem = reminderText({ kopriName: "Test Kopri", item: dep, today });
 ok("reminder says it was due", rem.includes("was due on") && rem.includes("₹1,100"), rem);
+
+// Member statement
+const st0 = memberStatement({ ...state, events: state.events.filter((e) => !evs.includes(e) && !devs.includes(e)) }, members[0], today);
+ok("statement: Asha owes Oct + Nov deposits with late fees", st0.depositsUnpaid === 2200 && st0.owedNow === 2200, `${st0.depositsUnpaid} ${st0.owedNow}`);
+const stC = memberStatement(state, members[2], today);
+ok("statement: Carol's loan shows paid back and still to pay", stC.loans.length === 1 && stC.loans[0].paidBack === 2000 && stC.loans[0].stillToPay === 10000, JSON.stringify(stC.loans[0]));
+ok("statement: next EMI is EMI 3", stC.loans[0].next?.index === 2);
+const txt = statementText(stC);
+ok("statement text lists loan and next EMI", txt.includes("₹10,000 still to pay") && txt.includes("Next EMI"), txt);
 
 console.log(failures ? `\n${failures} COLLECT TEST(S) FAILED` : "\nALL COLLECT TESTS PASSED");
 process.exit(failures ? 1 : 0);

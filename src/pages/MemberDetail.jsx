@@ -5,7 +5,7 @@ import { deriveMember, deriveLoan, sortLedger, deriveDeposits, isDepositor, memb
 import { formatINR, formatDate, round2, todayISO } from "../lib/format.js";
 import { Card, StatCard, StatusBadge, Button, Badge, MemberCell, Avatar, Progress, EmptyState } from "../components/ui.jsx";
 import { EventFormModal, MemberFormModal } from "../components/modals.jsx";
-import { IconPlus, IconArrow, IconCash } from "../components/Icons.jsx";
+import { IconPlus, IconArrow, IconCash, IconPrint } from "../components/Icons.jsx";
 import { EVENT_TYPES, MEMBER_ROLE_SHORT, eventLabel } from "../lib/constants.js";
 import { toast } from "../components/ui.jsx";
 
@@ -82,6 +82,9 @@ export default function MemberDetail() {
           <Button size="sm" variant="danger" onClick={() => { setShowEvent({ type: EVENT_TYPES.WITHDRAWAL, memberId: id }); setQuickRecord(null); }}>
             Withdrawal
           </Button>
+          <Link to={`/members/${id}/statement`} className="btn btn-sm">
+            <IconPrint /> Statement
+          </Link>
           <Button size="sm" variant="ghost" onClick={() => { setQuickRecord({ memberId: id }); setShowEvent({}); }}>
             <IconPlus /> Record transaction
           </Button>

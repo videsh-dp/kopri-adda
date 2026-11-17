@@ -295,6 +295,9 @@ export default function Collect() {
                 <span className="small muted">{menuFor.member.phone ? `To ${menuFor.member.phone}` : "No phone saved, you pick the contact"}</span>
               </span>
             </button>
+            <Link to={`/members/${menuFor.member.id}/statement`} onClick={() => setMenuFor(null)}>
+              Statement to print or send
+            </Link>
             <Link to={`/members/${menuFor.member.id}`} onClick={() => setMenuFor(null)}>
               Open {menuFor.member.name.split(" ")[0]}'s page
             </Link>

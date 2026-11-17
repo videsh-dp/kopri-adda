@@ -118,6 +118,21 @@ try {
   const sheet = await page.evaluate(() => document.querySelector(".sheet")?.innerText || "");
   ok("More lists Manager tools with Overview", /manager tools/i.test(sheet) && sheet.includes("Overview"));
 
+  // Member statement: printable page + WhatsApp summary
+  await page.goto(`${BASE}/members/m6/statement`, { waitUntil: "networkidle0" });
+  await sleep(300);
+  const st = await page.evaluate(() => document.body.innerText);
+  ok("statement page shows deposits, loans and what is due", st.includes("Statement for Vijay Sawant") && st.includes("Deposits") && st.includes("Loans") && st.includes("Due now"));
+  ok("statement has no app menus", !(await page.$(".tabbar")) || !(await page.$eval(".tabbar", (n) => n.offsetParent)));
+  await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.innerText.includes("Send on WhatsApp")).click());
+  await sleep(150);
+  const sent = await page.evaluate(() => window.__opened.pop());
+  ok("statement goes to WhatsApp as a summary", sent && sent.includes("wa.me/919822567890") && decodeURIComponent(sent).includes("statement"), sent);
+  const [ssw, scw] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+  ok("statement fits the phone", ssw <= scw);
+  await shot(page, "statement-phone");
+  await page.goto(`${BASE}/`, { waitUntil: "networkidle0" });
+
   // First-run setup guide on a brand-new kopri
   await page.keyboard.press("Escape");
   await page.click(".kopri-switch-btn");

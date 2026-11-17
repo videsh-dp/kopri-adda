@@ -3,6 +3,7 @@ import Layout from "./components/Layout.jsx";
 import Accounts from "./pages/Accounts.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Collect from "./pages/Collect.jsx";
+import Statement from "./pages/Statement.jsx";
 import Members from "./pages/Members.jsx";
 import MemberDetail from "./pages/MemberDetail.jsx";
 import Loans from "./pages/Loans.jsx";
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="/reports" element={<Reports />} />
           <Route path="/rules" element={<Rules />} />
         </Route>
+        <Route path="/members/:id/statement" element={<Statement />} />
       </Routes>
       <ToastHost />
     </>
