@@ -36,7 +36,7 @@ const setField = (label, value) =>
   page.evaluate(
     (label, value) => {
       const modal = [...document.querySelectorAll(".modal")].pop() || document;
-      const group = [...modal.querySelectorAll(".form-group")].find((g) => g.querySelector("label")?.innerText.trim().startsWith(label));
+      const group = [...modal.querySelectorAll(".form-group")].find((g) => g.querySelector("label")?.textContent.trim().startsWith(label));
       if (!group) throw new Error(`field not found: ${label}`);
       const el = group.querySelector("input, select");
       const proto = el.tagName === "SELECT" ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
@@ -51,7 +51,7 @@ const setSelectByText = (label, optionText) =>
   page.evaluate(
     (label, optionText) => {
       const modal = [...document.querySelectorAll(".modal")].pop() || document;
-      const group = [...modal.querySelectorAll(".form-group")].find((g) => g.querySelector("label")?.innerText.trim().startsWith(label));
+      const group = [...modal.querySelectorAll(".form-group")].find((g) => g.querySelector("label")?.textContent.trim().startsWith(label));
       const el = group.querySelector("select");
       const opt = [...el.options].find((o) => o.text.includes(optionText));
       Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(el, opt.value);
@@ -87,7 +87,7 @@ try {
     await clickButton("Add member");
     await sleep(250);
     await setField("Full name", name);
-    await setField("Opening deposit", amt);
+    await setField("Opening amount", amt);
     await page.evaluate(() => document.querySelector(".modal-foot button.btn-primary").click());
     await sleep(300);
   }
@@ -100,7 +100,7 @@ try {
   await page.goto(`${BASE}/deposits`, { waitUntil: "networkidle0" });
   await sleep(300);
   let text0 = await bodyText();
-  ok("deposits page lists both members", text0.includes("Monthly Deposits") && text0.includes("Asha Flow") && text0.includes("Bosco Flow"));
+  ok("deposits page lists both members", text0.includes("Deposit chart") && text0.includes("Asha Flow") && text0.includes("Bosco Flow"));
   const cellCount = await page.$$eval(".dg-cell.dg-due, .dg-cell.dg-late, .dg-cell.dg-upcoming", (els) => els.filter((e) => !e.closest(".dg-legend")).length);
   ok("this month shows as unpaid for both", cellCount === 2, cellCount);
   await page.evaluate(() => {
@@ -134,23 +134,23 @@ try {
 
   // Loan with a custom principal schedule
   await page.goto(`${BASE}/loans`, { waitUntil: "networkidle0" });
-  await clickButton("Create loan");
+  await clickButton("New loan");
   await sleep(300);
-  await setSelectByText("Borrower", "Bosco Flow");
+  await setSelectByText("Who takes the loan", "Bosco Flow");
   await sleep(150);
   let noRefDisabled = await page.evaluate(() => document.querySelector(".modal-foot button.btn-primary").disabled);
   ok("can't create a loan without a referral", noRefDisabled);
   const refOptions = await page.evaluate(() => {
-    const group = [...document.querySelectorAll(".modal .form-group")].find((g) => g.querySelector("label")?.innerText.startsWith("Referred by"));
+    const group = [...document.querySelectorAll(".modal .form-group")].find((g) => g.querySelector("label")?.innerText.startsWith("Recommended by"));
     return [...group.querySelectorAll("option")].map((o) => o.text);
   });
   ok("referrers are depositors other than the borrower", refOptions.includes("Asha Flow") && !refOptions.includes("Bosco Flow") && !refOptions.includes("Carlos Outsider"), refOptions.join());
-  await setSelectByText("Referred by", "Asha Flow");
-  await setField("Principal (₹)", "12000");
-  await setField("Interest rate", "2");
-  await setField("Tenure (months)", "3");
-  await setField("Interest method", "reducing_balance");
-  await setField("Principal repayment", "custom");
+  await setSelectByText("Recommended by", "Asha Flow");
+  await setField("Loan amount (₹)", "12000");
+  await setField("Interest (%)", "2");
+  await setField("Number of months", "3");
+  await setField("How interest", "reducing_balance");
+  await setField("Loan amount is paid back", "custom");
   await sleep(250);
   const customCells = await page.$$(".custom-schedule input");
   ok("custom schedule shows one input per month", customCells.length === 3, customCells.length);
@@ -174,7 +174,7 @@ try {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await sleep(150);
-  await clickButton("Create loan & disburse");
+  await clickButton("Give loan");
   await sleep(400);
   b = await book();
   const loan = b.loans[0];
@@ -192,7 +192,7 @@ try {
   await sleep(300);
   await setField("Amount", "500");
   await sleep(100);
-  await clickButton("Record payment");
+  await clickButton("Save payment");
   await sleep(400);
   b = await book();
   const pays = b.events.filter((e) => e.loanId === loan.id && e.installmentIndex === 0);
@@ -201,15 +201,15 @@ try {
   ok("₹500 split as ₹240 interest + ₹260 principal", interest?.amount === 240 && principal?.amount === 260, JSON.stringify(pays.map((p) => [p.type, p.amount])));
 
   // Write off the rest
-  await clickButton("Write off");
+  await clickButton("Can't recover");
   await sleep(250);
-  await page.evaluate(() => [...document.querySelectorAll(".modal-foot button")].find((x) => x.innerText.trim() === "Write off").click());
+  await page.evaluate(() => [...document.querySelectorAll(".modal-foot button")].find((x) => x.innerText.trim() === "Yes, can't be recovered").click());
   await sleep(400);
   b = await book();
   const wo = b.events.find((e) => e.type === "LOAN_WRITE_OFF");
   ok("write-off recorded for remaining principal", wo && wo.amount === 11740 && wo.loanId === loan.id, wo?.amount);
   text = await bodyText();
-  ok("loan shows as defaulted", text.includes("Defaulted"));
+  ok("loan shows as defaulted", text.includes("Not paying"));
 
   // Cash: 80000 deposits − 12000 loan + 500 repaid; write-off moves no cash
   await page.goto(`${BASE}/cash-bank`, { waitUntil: "networkidle0" });

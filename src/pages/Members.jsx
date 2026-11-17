@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useKopri } from "../state/KopriContext.jsx";
 import { deriveMember, deriveDeposits, isDepositor, memberRole } from "../lib/calculations.js";
-import { MEMBER_ROLES, MEMBER_ROLE_LABELS } from "../lib/constants.js";
+import { MEMBER_ROLES, MEMBER_ROLE_SHORT } from "../lib/constants.js";
 import { formatINR, formatDate } from "../lib/format.js";
 import { Card, MemberCell, StatusBadge, Button, EmptyState, Badge } from "../components/ui.jsx";
 import { MemberFormModal } from "../components/modals.jsx";
@@ -38,10 +38,10 @@ export default function Members() {
     <div>
       <div className="page-head">
         <div>
-          <div className="page-title">Members & Borrowers</div>
+          <div className="page-title">People</div>
           <div className="page-sub">
-            {depositorCount} depositing members · {borrowerOnly} borrower{borrowerOnly === 1 ? "" : "s"} only · {formatINR(totalCapital)} total capital ·{" "}
-            {formatINR(totalOutstanding)} outstanding loans
+            {depositorCount} members · {borrowerOnly} borrower{borrowerOnly === 1 ? "" : "s"} only · {formatINR(totalCapital)} deposited ·{" "}
+            {formatINR(totalOutstanding)} still to pay on loans
           </div>
         </div>
         <div className="row">
@@ -58,7 +58,7 @@ export default function Members() {
         <div className="tabs" style={{ marginBottom: 0, borderBottom: "none" }}>
           {[
             ["all", "All"],
-            ["depositors", "Depositors"],
+            ["depositors", "Members"],
             ["borrowers", "Borrowers"],
           ].map(([k, label]) => (
             <button key={k} className={`tab ${roleFilter === k ? "active" : ""}`} onClick={() => setRoleFilter(k)}>
@@ -99,11 +99,11 @@ export default function Members() {
                   <th>Joined</th>
                   <th>Status</th>
                   <th>Role</th>
-                  <th className="num">Deposits due</th>
-                  <th className="num">Contributions</th>
-                  <th className="num">Capital</th>
-                  <th className="num">Loans out</th>
-                  <th className="num">Overdue</th>
+                  <th className="num">Deposits unpaid</th>
+                  <th className="num">Deposited</th>
+                  <th className="num">Balance</th>
+                  <th className="num">Loan to pay</th>
+                  <th className="num">Late</th>
                   <th />
                 </tr>
               </thead>
@@ -123,7 +123,7 @@ export default function Members() {
                       )}
                     </td>
                     <td>
-                      <Badge tone={isDepositor(m) ? "violet" : "gray"}>{MEMBER_ROLE_LABELS[memberRole(m)]}</Badge>
+                      <Badge tone={isDepositor(m) ? "violet" : "gray"}>{MEMBER_ROLE_SHORT[memberRole(m)]}</Badge>
                     </td>
                     <td className="num">
                       {m.deposits.arrears > 0 ? (

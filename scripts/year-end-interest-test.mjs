@@ -102,12 +102,12 @@ try {
   await page.goto(`${BASE}/loans/lyei`, { waitUntil: "networkidle0" });
   await sleep(300);
   text = await bodyText();
-  ok("loan page shows the capitalized interest", text.includes("added to principal") && text.includes("settled at year end"));
+  ok("loan page shows the capitalized interest", text.includes("added to the loan") && text.includes("settled at year end"));
 
   await page.goto(`${BASE}/ledger`, { waitUntil: "networkidle0" });
   await sleep(300);
   text = await bodyText();
-  ok("ledger lists the non-cash entry", text.includes("Interest capitalized"));
+  ok("ledger lists the non-cash entry", text.includes("Unpaid interest added to loan"));
 
   ok("no console/page errors", errors.length === 0, errors.join(" | "));
 } catch (e) {

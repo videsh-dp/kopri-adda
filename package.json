@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node scripts/calc-test.mjs && node scripts/store-test.mjs",
+    "test": "node scripts/calc-test.mjs && node scripts/store-test.mjs && node scripts/collect-test.mjs",
     "test:calc": "node scripts/calc-test.mjs",
     "test:store": "node scripts/store-test.mjs",
     "test:ui": "node scripts/ui-test.mjs",
@@ -16,7 +16,8 @@
     "test:manager": "node scripts/manager-flow-test.mjs",
     "test:year-end-interest": "node scripts/year-end-interest-test.mjs",
     "test:mobile": "node scripts/mobile-test.mjs",
-    "test:accounts": "node scripts/accounts-test.mjs"
+    "test:accounts": "node scripts/accounts-test.mjs",
+    "test:collect": "node scripts/collect-test.mjs && node scripts/collect-ui-test.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

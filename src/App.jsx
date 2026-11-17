@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout.jsx";
 import Accounts from "./pages/Accounts.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
+import Collect from "./pages/Collect.jsx";
 import Members from "./pages/Members.jsx";
 import MemberDetail from "./pages/MemberDetail.jsx";
 import Loans from "./pages/Loans.jsx";
@@ -19,7 +20,8 @@ export default function App() {
     <>
       <Routes>
         <Route element={<Layout />}>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<Collect />} />
+          <Route path="/overview" element={<Dashboard />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/members" element={<Members />} />
           <Route path="/members/:id" element={<MemberDetail />} />

@@ -22,47 +22,39 @@ import {
   IconInstall,
   IconClose,
   IconTree,
+  IconCash,
 } from "./Icons.jsx";
 
+// Daily work first; the accounting pages live under "Manager tools".
 const NAV = [
   {
-    section: "Overview",
+    section: "Daily",
     items: [
-      { to: "/", label: "Dashboard", icon: IconDashboard, end: true },
-      { to: "/accounts", label: "Accounts", icon: IconTree },
-    ],
-  },
-  {
-    section: "People & Loans",
-    items: [
-      { to: "/members", label: "Members", icon: IconUsers },
-      { to: "/deposits", label: "Deposits", icon: IconCalendar },
+      { to: "/", label: "Collect", title: "Collect payments", icon: IconCash, end: true },
+      { to: "/members", label: "People", icon: IconUsers },
       { to: "/loans", label: "Loans", icon: IconLoan },
+      { to: "/deposits", label: "Deposit chart", icon: IconCalendar },
     ],
   },
   {
-    section: "Money",
+    section: "Manager tools",
     items: [
-      { to: "/ledger", label: "Ledger", icon: IconLedger },
-      { to: "/cash-bank", label: "Cash & Bank", icon: IconBank },
-      { to: "/year-end", label: "Year End", icon: IconYearEnd },
-    ],
-  },
-  {
-    section: "Setup",
-    items: [
+      { to: "/overview", label: "Overview", icon: IconDashboard },
+      { to: "/ledger", label: "All entries", icon: IconLedger },
+      { to: "/cash-bank", label: "Cash & bank", icon: IconBank },
+      { to: "/accounts", label: "Accounts", icon: IconTree },
+      { to: "/year-end", label: "Year end", icon: IconYearEnd },
       { to: "/reports", label: "Reports", icon: IconReport },
-      { to: "/rules", label: "Kopri Rules", icon: IconRules },
+      { to: "/rules", label: "Settings", title: "Kopri settings", icon: IconRules },
     ],
   },
 ];
 
 const ALL = NAV.flatMap((s) => s.items);
-// Phone bottom tab bar: the four daily screens, everything else under "More".
+// Phone bottom tab bar: the three daily screens, everything else under "More".
 const TABS = [
-  { to: "/", label: "Home", icon: IconDashboard, end: true },
-  { to: "/members", label: "Members", icon: IconUsers },
-  { to: "/deposits", label: "Deposits", icon: IconCalendar },
+  { to: "/", label: "Collect", icon: IconCash, end: true },
+  { to: "/members", label: "People", icon: IconUsers },
   { to: "/loans", label: "Loans", icon: IconLoan },
 ];
 const MORE = ALL.filter((i) => !TABS.some((t) => t.to === i.to));
@@ -128,8 +120,14 @@ function MoreSheet({ open, onClose }) {
             <IconClose />
           </button>
         </div>
-        <div className="sheet-list">
-          {MORE.map((item) => (
+        {NAV.map((section) => {
+          const items = section.items.filter((i) => MORE.includes(i));
+          if (!items.length) return null;
+          return (
+            <div key={section.section}>
+              <div className="sheet-section">{section.section}</div>
+              <div className="sheet-list">
+                {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -139,10 +137,13 @@ function MoreSheet({ open, onClose }) {
               <span className="sheet-row-icon">
                 <item.icon width={20} height={20} />
               </span>
-              {item.label}
-            </NavLink>
-          ))}
-        </div>
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          );
+        })}
         <div className="sheet-list">
           <button className="sheet-row" onClick={() => setTheme(dark ? "light" : "dark")}>
             <span className="sheet-row-icon">{dark ? <IconSun width={20} height={20} /> : <IconMoon width={20} height={20} />}</span>
@@ -287,7 +288,7 @@ export default function Layout() {
               <IconBack width={20} height={20} />
             </button>
           )}
-          <h1>{activePage?.label || "Kopri Manager"}</h1>
+          <h1>{activePage?.title || activePage?.label || "Kopri Manager"}</h1>
           <span className="topbar-meta">{formatDate(todayISO())}</span>
           <div className="topbar-spacer" />
           <KopriSwitcher />

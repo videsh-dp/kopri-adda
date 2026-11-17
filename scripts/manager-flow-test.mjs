@@ -53,7 +53,7 @@ const setField = (label, value, inPage = false) =>
   page.evaluate(
     (label, value, inPage) => {
       const root = inPage ? document : [...document.querySelectorAll(".modal")].pop() || document;
-      const group = [...root.querySelectorAll(".form-group")].find((g) => g.querySelector("label")?.innerText.trim().startsWith(label));
+      const group = [...root.querySelectorAll(".form-group")].find((g) => g.querySelector("label")?.textContent.trim().startsWith(label));
       if (!group) throw new Error(`field not found: ${label}`);
       const el = group.querySelector("input, select");
       const proto = el.tagName === "SELECT" ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
@@ -69,7 +69,7 @@ const setSelectByText = (label, optionText) =>
   page.evaluate(
     (label, optionText) => {
       const modal = [...document.querySelectorAll(".modal")].pop() || document;
-      const group = [...modal.querySelectorAll(".form-group")].find((g) => g.querySelector("label")?.innerText.trim().startsWith(label));
+      const group = [...modal.querySelectorAll(".form-group")].find((g) => g.querySelector("label")?.textContent.trim().startsWith(label));
       const el = group.querySelector("select");
       const opt = [...el.options].find((o) => o.text.includes(optionText));
       if (!opt) throw new Error(`option not found: ${optionText}`);
@@ -133,7 +133,7 @@ try {
     await clickButton("Add member");
     await sleep(250);
     await setField("Full name", name);
-    await setField("Role", role);
+    await page.evaluate((t) => [...document.querySelectorAll(".modal .seg button")].find((x) => x.innerText.trim() === t).click(), role === "both" ? "Member + borrower" : "Member");
     await sleep(100);
     await setField("Monthly deposit", "1000");
     await setField("Deposits start from", start);
@@ -155,9 +155,9 @@ try {
   const lateNow = todayDay > 15 ? 3 : 2;
   ok(`Asha shows ${lateNow} late months on the deposits page`, text.includes(`Asha Mgr (${lateNow} months, ₹${lateNow},000)`), text.match(/Late deposits:[^\n]*/)?.[0]);
   ok("late months are red cells", (await page.$$eval(".deposit-grid .dg-late", (els) => els.length)) >= 2);
-  await go("/");
+  await go("/overview");
   text = await bodyText();
-  ok("dashboard warns that a member is behind on deposits", text.includes("behind on monthly deposits"));
+  ok("overview warns that a member is behind on deposits", text.includes("behind on monthly deposits"));
 
   // Pay Asha's oldest month on her page; it is paid late so a fee is due.
   await go(`/members/${asha.id}`);
@@ -200,7 +200,7 @@ try {
   start.setDate(start.getDate() - 1);
   const startISO = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
   await go("/loans");
-  await clickButton("Create loan");
+  await clickButton("New loan");
   await sleep(300);
   await clickButton("+ New", ".modal");
   await sleep(300);
@@ -212,24 +212,24 @@ try {
   const carlos = b.members.find((m) => m.name === "Carlos Mgr");
   ok("new borrower added from inside the loan form", carlos && carlos.role === "borrower" && carlos.idProof === "PAN ABCDE1234F");
   const picked = await page.evaluate(() => {
-    const g = [...document.querySelectorAll(".modal .form-group")].find((x) => x.querySelector("label")?.innerText.startsWith("Borrower"));
+    const g = [...document.querySelectorAll(".modal .form-group")].find((x) => x.querySelector("label")?.innerText.startsWith("Who takes the loan"));
     const s = g.querySelector("select");
     return s.options[s.selectedIndex].text;
   });
   ok("the new borrower is picked in the loan form", picked.includes("Carlos Mgr"), picked);
-  await setField("Principal (₹)", "12000");
-  await setField("Interest rate", "2");
-  await setField("Interest method", "flat");
-  await setField("Tenure (months)", "12");
-  await setField("Start date", startISO);
-  await setField("Late payment rule", "fixed_penalty");
+  await setField("Loan amount (₹)", "12000");
+  await setField("Interest (%)", "2");
+  await setField("How interest", "flat");
+  await setField("Number of months", "12");
+  await setField("Loan given on", startISO);
+  await setField("If an EMI is late", "fixed_penalty");
   await sleep(100);
-  await setField("Late fee per overdue installment", "100");
+  await setField("Late fee per late EMI", "100");
   let disabled = await page.evaluate(() => [...document.querySelectorAll(".modal-foot button.btn-primary")].pop().disabled);
   ok("loan blocked until a member refers it", disabled);
-  await setSelectByText("Referred by", "Asha Mgr");
+  await setSelectByText("Recommended by", "Asha Mgr");
   await sleep(100);
-  await clickButton("Create loan & disburse");
+  await clickButton("Give loan");
   await sleep(400);
   b = await book();
   const loan = b.loans[0];
@@ -239,9 +239,9 @@ try {
   text = await bodyText();
   ok("loan page shows ₹200 late fees built up (2 overdue × ₹100)", /Late fees due\s*₹200/.test(text), text.match(/Late fees due[^\n]*\n[^\n]*/)?.[0]);
   ok("loan page names the referrer", text.includes("Referred this loan") && text.includes("Asha Mgr"));
-  await go("/");
+  await go("/overview");
   text = await bodyText();
-  ok("dashboard shows late fees built up", text.includes("₹200 late fees"));
+  ok("overview shows late fees built up", text.includes("₹200 late fees"));
 
   // Installment 1: interest only, with its late fee.
   await go(`/loans/${loan.id}`);
@@ -263,9 +263,9 @@ try {
 
   // Installment 1 again: principal only — late fee must not be charged twice.
   await payInst(1);
-  text = await page.evaluate(() => [...document.querySelectorAll(".modal")].pop().innerText);
+  text = await page.evaluate(() => [...document.querySelectorAll(".modal")].pop().textContent);
   ok("pay screen shows the late fee already collected", text.includes("already collected"));
-  await clickButton("Principal only", ".modal");
+  await clickButton("Loan part only", ".modal");
   await sleep(150);
   await primary();
   await sleep(300);
@@ -286,7 +286,7 @@ try {
   ok("late fees all collected now", /Late fees due\s*₹0/.test(text));
   ok("installment 1 paid, installment 2 still overdue", await page.evaluate(() => {
     const rows = [...document.querySelectorAll("tbody tr")];
-    return rows[0].innerText.includes("Paid") && rows[1].innerText.includes("Overdue");
+    return rows[0].innerText.includes("Paid") && rows[1].innerText.includes("Late");
   }));
 
   // Installment 3 in full (principal + interest).

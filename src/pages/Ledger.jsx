@@ -8,7 +8,7 @@ import { Card, Badge, Button, EmptyState } from "../components/ui.jsx";
 import { EventFormModal } from "../components/modals.jsx";
 import { IconPlus, IconSearch, IconEdit, IconTrash } from "../components/Icons.jsx";
 import { ConfirmModal } from "../components/ui.jsx";
-import { EVENT_TYPES } from "../lib/constants.js";
+import { EVENT_TYPES, EVENT_META, eventLabel } from "../lib/constants.js";
 
 const FILTERS = [
   ["all", "All"],
@@ -17,25 +17,7 @@ const FILTERS = [
   ["transfer", "Transfers"],
 ];
 
-const EVENT_LABELS = {
-  MEMBER_CONTRIBUTION: "Contribution",
-  MEMBER_WITHDRAWAL: "Withdrawal",
-  LOAN_DISBURSEMENT: "Disbursement",
-  PRINCIPAL_PAYMENT: "Principal repaid",
-  INTEREST_PAYMENT: "Interest received",
-  LATE_FEE: "Late fee",
-  EXPENSE: "Expense",
-  OTHER_INCOME: "Other income",
-  TRANSFER: "Transfer",
-  ADJUSTMENT: "Adjustment",
-  LOAN_WRITE_OFF: "Write-off",
-  PROFIT_ALLOCATION: "Profit allocated",
-  MEMBER_SETTLEMENT: "Settlement",
-  MANAGER_PAYOUT: "Manager's share",
-  INTEREST_CAPITALIZED: "Interest capitalized",
-  INTEREST_TO_ARREARS: "Interest to arrears",
-  INTEREST_WAIVED: "Interest waived",
-};
+const EVENT_LABELS = Object.fromEntries(Object.keys(EVENT_META).map((t) => [t, eventLabel(t)]));
 
 
 const YEAR_END_INTEREST_TYPES = ["INTEREST_CAPITALIZED", "INTEREST_TO_ARREARS", "INTEREST_WAIVED"];
@@ -102,7 +84,7 @@ export default function Ledger() {
     <div>
       <div className="page-head">
         <div>
-          <div className="page-title">Unified Ledger</div>
+          <div className="page-title">All entries</div>
           <div className="page-sub">
             Every rupee is an event — {formatINR(accounts.total)} in pool · {formatINR(accounts.cash)} cash · {formatINR(accounts.bank)} bank
           </div>

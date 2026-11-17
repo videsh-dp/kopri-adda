@@ -59,7 +59,7 @@ try {
   await page.click(".tabbar button");
   await sleep(300);
   ok("More opens a sheet", !!(await page.$(".sheet")));
-  await page.evaluate(() => [...document.querySelectorAll(".sheet-row")].find((a) => a.innerText.includes("Year End")).click());
+  await page.evaluate(() => [...document.querySelectorAll(".sheet-row")].find((a) => a.innerText.includes("Year end")).click());
   await sleep(400);
   ok("More → Year End navigates and closes the sheet", new URL(page.url()).pathname === "/year-end" && !(await page.$(".sheet")));
 
@@ -70,6 +70,9 @@ try {
     await go(path);
     await page.evaluate((t) => [...document.querySelectorAll(".content button")].find((b) => b.innerText.trim() === t).click(), buttonText);
     await sleep(400);
+    // Open "More details" so the date fields inside it are measured too.
+    await page.evaluate(() => document.querySelectorAll(".modal details").forEach((d) => (d.open = true)));
+    await sleep(150);
     const r = await page.evaluate(() => {
       const m = document.querySelector(".modal");
       if (!m) return null;
@@ -103,7 +106,7 @@ try {
     await sleep(200);
   };
   await checkSheet("/members", "Add member");
-  await checkSheet("/loans", "Create loan");
+  await checkSheet("/loans", "New loan");
   await checkSheet("/ledger", "Record transaction");
   // Short screen (browser bars showing, or keyboard up): footer still visible
   await page.setViewport({ width: 360, height: 520, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });

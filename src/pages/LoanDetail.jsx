@@ -110,15 +110,15 @@ export default function LoanDetail() {
               onClick={() => {
                 const next = loan.status === "defaulted" ? "active" : "defaulted";
                 updateLoan(loan.id, { status: next });
-                toast(next === "defaulted" ? "Loan marked as defaulted." : "Loan marked as active again.");
+                toast(next === "defaulted" ? "Loan marked as not paying." : "Loan marked as active again.");
               }}
             >
-              {loan.status === "defaulted" ? "Clear default" : "Mark defaulted"}
+              {loan.status === "defaulted" ? "Mark as paying again" : "Mark as not paying"}
             </Button>
           )}
           {view.outstandingPrincipal > 0.5 && (
             <Button size="sm" variant="ghost" onClick={() => setConfirmWriteOff(true)}>
-              Write off
+              Can't recover
             </Button>
           )}
           <Button
@@ -155,13 +155,13 @@ export default function LoanDetail() {
           </div>
           <div className="kpi-row">
             <div className="kpi">
-              <b>{formatINR(view.outstandingPrincipal)}</b>Principal out
+              <b>{formatINR(view.outstandingPrincipal)}</b>Loan still to pay
             </div>
             <div className="kpi">
               <b className={view.overduePrincipal + view.overdueInterest > 0 ? "amount-neg" : ""}>
                 {formatINR(view.overduePrincipal + view.overdueInterest)}
               </b>
-              Overdue
+              Late
             </div>
             <div className="kpi">
               <b>{formatINR(view.interestPaid)}</b>Interest paid
@@ -175,12 +175,12 @@ export default function LoanDetail() {
           <div className={`alert ${nextDue.status === "overdue" ? "alert-red" : "alert-blue"}`} style={{ marginTop: 14 }}>
             {nextDue.status === "overdue" ? (
               <b>
-                Installment #{nextDue.index + 1} is {nextDue.overdueDays} days overdue — {formatINR(nextDue.principalLeft + nextDue.interestLeft)} due
+                EMI {nextDue.index + 1} is {nextDue.overdueDays} days late — {formatINR(nextDue.principalLeft + nextDue.interestLeft)} due
                 {view.lateFeesDue > 0.005 ? <>, plus {formatINR(view.lateFeesDue)} late fees built up so far</> : null}.
               </b>
             ) : (
               <b>
-                Next installment #{nextDue.index + 1} due {formatDate(nextDue.dueDate)} — {formatINR(nextDue.totalDue)}.
+                Next EMI ({nextDue.index + 1}) due {formatDate(nextDue.dueDate)} — {formatINR(nextDue.totalDue)}.
               </b>
             )}
           </div>
@@ -189,9 +189,9 @@ export default function LoanDetail() {
 
       <div className="stat-grid">
         <StatCard
-          label="Principal repaid"
+          label="Loan amount paid back"
           value={formatINR(view.principalPaid)}
-          foot={`${Math.round(view.paidRatio * 100)}% of ${formatINR(view.totalPrincipal)}${view.interestCapitalized > 0.5 ? " (incl. capitalized interest)" : ""}`}
+          foot={`${Math.round(view.paidRatio * 100)}% of ${formatINR(view.totalPrincipal)}${view.interestCapitalized > 0.5 ? " (incl. unpaid interest added)" : ""}`}
           color="var(--teal)"
         />
         <StatCard label="Interest received" value={formatINR(view.interestPaid)} foot={`of ${formatINR(totals.interest)} scheduled`} color="var(--green)" />
@@ -201,7 +201,7 @@ export default function LoanDetail() {
           foot={`${formatINR(view.lateFeesPaid)} collected so far · ${loan.lateRule.replace(/_/g, " ")}`}
           color="var(--amber)"
         />
-        <StatCard label="Borrower capital" value={formatINR(borrowerView?.capital || 0)} foot="Security against this loan" color="var(--violet)" />
+        <StatCard label="Borrower's deposits" value={formatINR(borrowerView?.capital || 0)} foot="Security against this loan" color="var(--violet)" />
       </div>
 
       {view.interestCapitalized + view.interestToArrears + view.interestWaived > 0.5 && (
@@ -209,31 +209,31 @@ export default function LoanDetail() {
           <span>
             Year-end unpaid interest:{" "}
             {[
-              view.interestCapitalized > 0.5 && `${formatINR(view.interestCapitalized, { precise: true })} added to principal`,
+              view.interestCapitalized > 0.5 && `${formatINR(view.interestCapitalized, { precise: true })} added to the loan`,
               view.interestToArrears > 0.5 &&
-                `${formatINR(view.interestToArrears, { precise: true })} moved to arrears (${formatINR(view.interestArrears, { precise: true })} still owed)`,
-              view.interestWaived > 0.5 && `${formatINR(view.interestWaived, { precise: true })} waived`,
+                `${formatINR(view.interestToArrears, { precise: true })} kept aside as interest owed (${formatINR(view.interestArrears, { precise: true })} still owed)`,
+              view.interestWaived > 0.5 && `${formatINR(view.interestWaived, { precise: true })} forgiven`,
             ]
               .filter(Boolean)
               .join(" · ")}
           </span>
           {view.interestArrears > 0.5 && (
             <Button size="sm" onClick={() => setArrearsPay({ amount: String(view.interestArrears), date: todayISO() })}>
-              Collect arrears
+              Collect interest owed
             </Button>
           )}
         </div>
       )}
 
       <div className="row" style={{ alignItems: "flex-start" }}>
-        <Card title="Repayment Schedule" sub={`${view.installments.length} installments · ${loan.principalRepayment.replace("_", " ")} principal · ${loan.interestCollection} interest`} pad={false} className="grow">
+        <Card title="EMI schedule" sub={`${view.installments.length} EMIs · ${loan.principalRepayment.replace("_", " ")} principal · ${loan.interestCollection} interest`} pad={false} className="grow">
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
                   <th>#</th>
                   <th>Due date</th>
-                  <th className="num">Principal</th>
+                  <th className="num">Loan part</th>
                   <th className="num">Interest</th>
                   <th className="num">Total</th>
                   <th className="num">Paid</th>
@@ -314,13 +314,13 @@ export default function LoanDetail() {
           <Card title="Loan Terms" pad>
             <div className="stack" style={{ gap: 8 }}>
               {[
-                ["Principal", formatINR(loan.principal)],
+                ["Loan amount", formatINR(loan.principal)],
                 ["Rate", `${loan.rate}% / ${loan.rateUnit === "yearly" ? "year" : "month"}`],
                 ["Interest method", loan.interestMethod.replace("_", " ")],
                 ["Interest collected", loan.interestCollection],
-                ["Principal repayment", loan.principalRepayment.replace("_", " ")],
-                ["Tenure", `${loan.tenureMonths} months`],
-                ["Grace period", `${loan.gracePeriodDays} days`],
+                ["Loan repaid", loan.principalRepayment.replace("_", " ")],
+                ["Months", `${loan.tenureMonths} months`],
+                ["Days allowed after due date", `${loan.gracePeriodDays} days`],
                 ["Late rule", loan.lateRule.replace(/_/g, " ")],
                 ...(loan.lateRule === "fixed_penalty" ? [["Late fee", `${formatINR(loan.lateFixedPenalty)} / installment`]] : []),
                 ...(loan.lateRule === "percentage_penalty" ? [["Late fee", `${loan.latePercentagePenalty}% of overdue`]] : []),
@@ -421,8 +421,8 @@ export default function LoanDetail() {
           setConfirmWriteOff(false);
           toast("Loan written off.");
         }}
-        title="Write off this loan?"
-        confirmLabel="Write off"
+        title="Mark this loan as can't be recovered?"
+        confirmLabel="Yes, can't be recovered"
         danger
       >
         <p className="muted">
@@ -434,7 +434,7 @@ export default function LoanDetail() {
       <Modal
         open={!!arrearsPay}
         onClose={() => setArrearsPay(null)}
-        title="Collect interest arrears"
+        title="Collect interest owed"
         footer={
           <>
             <Button onClick={() => setArrearsPay(null)}>Cancel</Button>
@@ -452,7 +452,7 @@ export default function LoanDetail() {
                   description: "Interest arrears payment",
                 });
                 setArrearsPay(null);
-                toast("Arrears payment recorded.");
+                toast("Interest owed payment recorded.");
               }}
             >
               Record payment

@@ -27,24 +27,27 @@ export const EVENT_TYPES = {
 // How each event type affects money. sign: + adds to pool, - leaves the pool.
 // account: which side of the cash/bank books it touches by default.
 export const EVENT_META = {
-  [EVENT_TYPES.CONTRIBUTION]: { label: "Member Contribution", sign: "+", account: "cash", color: "#16a34a" },
-  [EVENT_TYPES.WITHDRAWAL]: { label: "Member Withdrawal", sign: "-", account: "cash", color: "#dc2626" },
-  [EVENT_TYPES.LOAN_DISBURSEMENT]: { label: "Loan Disbursement", sign: "-", account: "cash", color: "#2563eb" },
-  [EVENT_TYPES.PRINCIPAL_PAYMENT]: { label: "Principal Repayment", sign: "+", account: "cash", color: "#0891b2" },
-  [EVENT_TYPES.INTEREST_PAYMENT]: { label: "Interest Received", sign: "+", account: "cash", color: "#16a34a" },
-  [EVENT_TYPES.LATE_FEE]: { label: "Late Fee / Penalty", sign: "+", account: "cash", color: "#d97706" },
+  [EVENT_TYPES.CONTRIBUTION]: { label: "Deposit", sign: "+", account: "cash", color: "#16a34a" },
+  [EVENT_TYPES.WITHDRAWAL]: { label: "Money returned to member", sign: "-", account: "cash", color: "#dc2626" },
+  [EVENT_TYPES.LOAN_DISBURSEMENT]: { label: "Loan given", sign: "-", account: "cash", color: "#2563eb" },
+  [EVENT_TYPES.PRINCIPAL_PAYMENT]: { label: "Loan repaid", sign: "+", account: "cash", color: "#0891b2" },
+  [EVENT_TYPES.INTEREST_PAYMENT]: { label: "Interest received", sign: "+", account: "cash", color: "#16a34a" },
+  [EVENT_TYPES.LATE_FEE]: { label: "Late fee", sign: "+", account: "cash", color: "#d97706" },
   [EVENT_TYPES.EXPENSE]: { label: "Expense", sign: "-", account: "cash", color: "#dc2626" },
-  [EVENT_TYPES.OTHER_INCOME]: { label: "Other Income", sign: "+", account: "cash", color: "#16a34a" },
-  [EVENT_TYPES.TRANSFER]: { label: "Transfer (Cash ↔ Bank)", sign: "0", account: "cash", color: "#64748b" },
-  [EVENT_TYPES.ADJUSTMENT]: { label: "Adjustment", sign: "+", account: "cash", color: "#7c3aed" },
-  [EVENT_TYPES.LOAN_WRITE_OFF]: { label: "Bad Debt Write-off", sign: "0", account: "cash", color: "#dc2626" },
-  [EVENT_TYPES.PROFIT_ALLOCATION]: { label: "Profit Allocation", sign: "0", account: "cash", color: "#4f46e5" },
-  [EVENT_TYPES.MEMBER_SETTLEMENT]: { label: "Year-end Settlement", sign: "-", account: "cash", color: "#dc2626" },
-  [EVENT_TYPES.MANAGER_PAYOUT]: { label: "Manager's Share Paid", sign: "-", account: "cash", color: "#7c3aed" },
-  [EVENT_TYPES.INTEREST_CAPITALIZED]: { label: "Interest Capitalized", sign: "0", account: "cash", color: "#64748b" },
-  [EVENT_TYPES.INTEREST_TO_ARREARS]: { label: "Interest to Arrears", sign: "0", account: "cash", color: "#64748b" },
-  [EVENT_TYPES.INTEREST_WAIVED]: { label: "Interest Waived", sign: "0", account: "cash", color: "#64748b" },
+  [EVENT_TYPES.OTHER_INCOME]: { label: "Other income", sign: "+", account: "cash", color: "#16a34a" },
+  [EVENT_TYPES.TRANSFER]: { label: "Moved cash ↔ bank", sign: "0", account: "cash", color: "#64748b" },
+  [EVENT_TYPES.ADJUSTMENT]: { label: "Correction", sign: "+", account: "cash", color: "#7c3aed" },
+  [EVENT_TYPES.LOAN_WRITE_OFF]: { label: "Loan can't be recovered", sign: "0", account: "cash", color: "#dc2626" },
+  [EVENT_TYPES.PROFIT_ALLOCATION]: { label: "Profit share added", sign: "0", account: "cash", color: "#4f46e5" },
+  [EVENT_TYPES.MEMBER_SETTLEMENT]: { label: "Year-end payout", sign: "-", account: "cash", color: "#dc2626" },
+  [EVENT_TYPES.MANAGER_PAYOUT]: { label: "Manager's share paid", sign: "-", account: "cash", color: "#7c3aed" },
+  [EVENT_TYPES.INTEREST_CAPITALIZED]: { label: "Unpaid interest added to loan", sign: "0", account: "cash", color: "#64748b" },
+  [EVENT_TYPES.INTEREST_TO_ARREARS]: { label: "Unpaid interest kept aside", sign: "0", account: "cash", color: "#64748b" },
+  [EVENT_TYPES.INTEREST_WAIVED]: { label: "Interest forgiven", sign: "0", account: "cash", color: "#64748b" },
 };
+
+// Plain-words name of a ledger entry type, for lists and badges.
+export const eventLabel = (type) => EVENT_META[type]?.label || type;
 
 // Cash-flow impact for ledger balance derivation
 export const CASH_SIGN = {
@@ -95,11 +98,11 @@ export const LATE_RULES = {
 };
 
 export const LATE_RULE_LABELS = {
-  [LATE_RULES.GRACE_ONLY]: "Grace period only",
-  [LATE_RULES.NORMAL_INTEREST]: "Normal interest continues after grace",
-  [LATE_RULES.ADDITIONAL_INTEREST]: "Additional interest after grace",
-  [LATE_RULES.FIXED_PENALTY]: "Fixed penalty per overdue installment",
-  [LATE_RULES.PERCENTAGE_PENALTY]: "Percentage penalty on overdue amount",
+  [LATE_RULES.GRACE_ONLY]: "No late charge",
+  [LATE_RULES.NORMAL_INTEREST]: "Normal interest keeps running",
+  [LATE_RULES.ADDITIONAL_INTEREST]: "Extra interest on the late amount",
+  [LATE_RULES.FIXED_PENALTY]: "Fixed late fee per EMI",
+  [LATE_RULES.PERCENTAGE_PENALTY]: "Late fee as % of the late amount",
 };
 
 export const UNPAID_INTEREST_RULES = {
@@ -111,10 +114,10 @@ export const UNPAID_INTEREST_RULES = {
 };
 
 export const UNPAID_INTEREST_LABELS = {
-  [UNPAID_INTEREST_RULES.CARRY_FORWARD]: "Carry forward",
-  [UNPAID_INTEREST_RULES.SEPARATE_OUTSTANDING]: "Move to arrears",
-  [UNPAID_INTEREST_RULES.CAPITALIZE]: "Add to principal",
-  [UNPAID_INTEREST_RULES.WRITE_OFF]: "Waive",
+  [UNPAID_INTEREST_RULES.CARRY_FORWARD]: "Carry it to next year",
+  [UNPAID_INTEREST_RULES.SEPARATE_OUTSTANDING]: "Keep it aside as interest owed",
+  [UNPAID_INTEREST_RULES.CAPITALIZE]: "Add it to the loan amount",
+  [UNPAID_INTEREST_RULES.WRITE_OFF]: "Forgive it",
   [UNPAID_INTEREST_RULES.MANUAL]: "Decide at year end",
 };
 
@@ -149,9 +152,16 @@ export const MEMBER_ROLES = {
 };
 
 export const MEMBER_ROLE_LABELS = {
-  [MEMBER_ROLES.DEPOSITOR]: "Depositor",
+  [MEMBER_ROLES.DEPOSITOR]: "Member (pays monthly deposit)",
+  [MEMBER_ROLES.BORROWER]: "Borrower only (takes loans)",
+  [MEMBER_ROLES.BOTH]: "Member who also borrows",
+};
+
+// Short form for badges and lists.
+export const MEMBER_ROLE_SHORT = {
+  [MEMBER_ROLES.DEPOSITOR]: "Member",
   [MEMBER_ROLES.BORROWER]: "Borrower",
-  [MEMBER_ROLES.BOTH]: "Depositor & borrower",
+  [MEMBER_ROLES.BOTH]: "Member + borrower",
 };
 
 export const DEPOSIT_LATE_FEE = {

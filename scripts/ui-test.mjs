@@ -27,7 +27,7 @@ try {
   await page.goto(BASE, { waitUntil: "networkidle0" });
   await sleep(800);
   let text = await page.evaluate(() => document.body.innerText);
-  ok("fresh load shows demo Kopri (Sunrise Kopri)", text.includes("Sunrise Kopri") && text.includes("Total Pool Assets"));
+  ok("fresh load shows demo Kopri (Sunrise Kopri)", text.includes("Sunrise Kopri") && text.includes("To collect"));
 
   // ---------------------------------------------------------------- Scenario 2:
   // Create a second Kopri (empty) via the topbar switcher
